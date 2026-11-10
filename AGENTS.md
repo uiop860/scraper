@@ -50,7 +50,7 @@ changed Markdown files with `mise exec -- npm exec -- prettier <file> --check`
 is sufficient. Project-local CLIs such as Prettier run through `npm exec`;
 `mise exec` alone exposes the tools managed directly by mise.
 
-The development task is long-running; stop it when finished. It uses a temporary
-Firefox profile. To select a Firefox binary, use
+The development task is long-running; stop it when finished. It reuses the ignored `.firefox-profile/` development profile and preserves
+temporary-extension storage across restarts. Use this profile only for development. To select a Firefox binary, use
 `WEB_EXT_FIREFOX=/path/to/firefox mise run dev`. If browser verification fails,
 report the limitation separately from successful type, lint, or build checks.

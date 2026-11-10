@@ -20,6 +20,19 @@ Edit `extension/content.ts`. Firefox API types are available through the global 
 
 `mise run dev` runs the compiler, TypeScript checker, and Firefox together. Changes to TypeScript, the manifest, or static assets rebuild `build/`, and web-ext reloads the extension. Refresh the page to apply content script changes. Type errors appear in the terminal; lint and release builds fail on them. Press Ctrl+C to stop all processes.
 
+The dev task reuses a dedicated `.firefox-profile/` directory (ignored by Git),
+so saved sign-in survives stopping and restarting `mise run dev`. It preserves
+both extension storage and its internal origin when Firefox removes the temporary
+add-on at shutdown. After restarting, enter your PIN; OAuth sign-in is only needed
+again if credentials were reset, lost, or revoked. An earlier disposable profile's
+login cannot be recovered automatically, so sign in once in this new profile.
+
+Use this profile only for development: web-ext changes browser settings for
+extension debugging. Close the development Firefox before starting dev again;
+do not run two instances against this profile. To start fresh, close dev Firefox
+and remove `.firefox-profile/`, which deletes its saved login and browser data.
+See [Mozilla's persistence testing guide](https://extensionworkshop.com/documentation/develop/testing-persistent-and-restart-features/).
+
 To select another Firefox binary, set `WEB_EXT_FIREFOX`:
 
 ```sh

@@ -133,6 +133,16 @@ the installed extension with the same add-on identity/origin. Schema version 1 a
 a stable database name preserve records; unknown formats fail closed with reset
 available. Removing/reinstalling, changing identity, clearing site/profile data,
 quota failures, disk corruption, and temporary add-on profiles can lose data.
+The dev task now uses an ignored `.firefox-profile/` with web-ext's
+`--keep-profile-changes` and both `extensions.webextensions.keepStorageOnUninstall`
+and `extensions.webextensions.keepUuidOnUninstall` preferences enabled. This
+preserves authentication storage and its origin across dev shutdown/relaunch.
+The preferences apply only to the dedicated development profile. Removing a
+temporary extension therefore retains its data there; use logout/reset to clear
+credentials, or delete that profile while Firefox is closed. Never use this
+web-ext-modified profile as your daily browser profile. See
+[Mozilla's persistence testing guide](https://extensionworkshop.com/documentation/develop/testing-persistent-and-restart-features/).
+
 Actual installed-extension restart/update continuity remains a manual release
 check; reopening a database in a fixture is not proof of those behaviors.
 

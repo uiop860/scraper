@@ -16,7 +16,7 @@ run = "node scripts/build.mjs"
 [tasks.dev]
 description = "Watch sources, check types, and run Firefox"
 depends = ["compile"]
-run = "npm exec -- concurrently --kill-others --names build,types,firefox 'node scripts/build.mjs --watch' 'tsc --noEmit --watch --preserveWatchOutput' 'web-ext run --source-dir build --start-url https://www.mozilla.org/en-US/'"
+run = "npm exec -- concurrently --kill-others --names build,types,firefox 'node scripts/build.mjs --watch' 'tsc --noEmit --watch --preserveWatchOutput' 'web-ext run --source-dir build --firefox-profile ./.firefox-profile --profile-create-if-missing --keep-profile-changes --pref=extensions.webextensions.keepStorageOnUninstall=true --pref=extensions.webextensions.keepUuidOnUninstall=true --start-url https://www.mozilla.org/en-US/'"
 
 [tasks.typecheck]
 description = "Check TypeScript types"
