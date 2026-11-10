@@ -1,3 +1,4 @@
+import "./scraper/background";
 import { Authentication } from "./auth/lifecycle";
 import {
   AuthError,
@@ -360,13 +361,23 @@ async function handle(message: unknown, sender: browser.runtime.MessageSender) {
     return { ok: false, error: text };
   }
 }
-browser.runtime.onMessage.addListener(handle);
+browser.runtime.onMessage.addListener((message, sender) => {
+  // Do not claim scraper messages: Firefox uses only one listener response.
+  if (
+    sender.url !== browser.runtime.getURL("settings.html") &&
+    sender.url !== browser.runtime.getURL("callback.html")
+  )
+    return;
+  return handle(message, sender);
+});
 browser.tabs.onRemoved.addListener((tabId) => {
   if (pending?.tabId === tabId)
     void cancelLogin().catch(() => {
       notice = "Could not clean up sign-in. Reload the extension.";
     });
 });
-browser.action.onClicked.addListener(() => {
-  void browser.runtime.openOptionsPage();
+browser.action.onClicked.addListener((tab) => {
+  void browser.tabs.create({
+    url: browser.runtime.getURL(`scraper.html?tab=${tab.id ?? ""}`),
+  });
 });

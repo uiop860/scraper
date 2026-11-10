@@ -1,6 +1,6 @@
 # Scraper
 
-Firefox Manifest V3 extension starter based on [MDN's first extension guide](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Your_first_WebExtension). Write TypeScript; esbuild bundles it into JavaScript for Firefox. The starter adds a red border to pages on `mozilla.org` and its subdomains.
+Firefox Manifest V3 extension for declarative JSON scraping, built with strict TypeScript and esbuild. It extracts rendered listing and detail pages locally, with optional experimental ChatGPT authentication.
 
 ## Setup
 
@@ -16,7 +16,7 @@ mise manages pinned Node.js and Mozilla `web-ext` versions. Tasks automatically 
 
 ## Development
 
-Edit `extension/content.ts`. Firefox API types are available through the global `browser` object, with strict TypeScript checking enabled.
+Edit source under `extension/`. Firefox API types are available through the global `browser` object, with strict TypeScript checking enabled.
 
 `mise run dev` runs the compiler, TypeScript checker, and Firefox together. Changes to TypeScript, the manifest, or static assets rebuild `build/`, and web-ext reloads the extension. Refresh the page to apply content script changes. Type errors appear in the terminal; lint and release builds fail on them. Press Ctrl+C to stop all processes.
 
@@ -57,7 +57,8 @@ ESLint checks JavaScript tooling and TypeScript extension code with recommended 
 
 ## Source
 
-- `extension/content.ts`: content script entry point; import additional TypeScript modules here.
+- `extension/content.ts`: isolated worker content script for rendered DOM extraction.
+- `extension/scraper.ts` and `extension/scraper/`: JSON scraping UI, schema, runtime, and navigation guard.
 - `extension/background.ts` and `extension/auth/`: PIN-encrypted OAuth storage, refresh lifecycle, and authenticated requests.
 - `extension/settings.html` and `extension/settings.ts`: account and model-test UI.
 - `extension/manifest.json`: metadata, permissions, and script URL matches. References compiled `.js` files.
@@ -73,9 +74,17 @@ The starter targets Firefox 142 or later. Before publishing, replace `scraper@ex
 
 Builds are unsigned. Distribution through standard Firefox installations requires [Mozilla signing](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/). See Mozilla's [web-ext guide](https://extensionworkshop.com/documentation/develop/getting-started-with-web-ext/) for more details.
 
+## JSON scraping
+
+Open a marketplace search tab and click the extension button to paste, validate,
+and run a JSON scraping specification. Listing pagination and detail pages run
+locally in a separate tab with exact-origin navigation limits. Download complete
+or partial JSON results; no AI or sign-in is required. See [scraping documentation](docs/scraping.md)
+for the contract, examples, security boundaries, tests, and limitations.
+
 ## Experimental ChatGPT authentication
 
-Click the extension's toolbar button to open account settings. The browser-only
+Open **Account settings** from the scraper page or Firefox's extension options. The browser-only
 prototype uses OpenAI's documented open-source OAuth flow and intercepts its
 `127.0.0.1` callback inside Firefox; no local server is needed. Set a four-digit PIN on first use. Refresh credentials are saved encrypted in
 IndexedDB; enter the PIN once per Firefox session to restore sign-in without

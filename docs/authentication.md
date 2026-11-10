@@ -154,11 +154,13 @@ browser configured to discard its profile/data at shutdown.
 
 ## Permissions and network access
 
-Permissions are `storage` and `declarativeNetRequestWithHostAccess`. Host access
-is limited to `127.0.0.1`, `auth.openai.com`, and `api.openai.com`. Match patterns
-cannot limit a host grant to one port; the actual DNR rule restricts port/path/tab.
-No `tabs`, cookies, webRequest, native messaging, or all-sites permission is used.
-The existing mozilla.org starter content script remains independent of auth.
+Authentication uses `storage` and the shared `declarativeNetRequest` permission.
+Required host access is limited to `127.0.0.1`, `auth.openai.com`, and
+`api.openai.com`. Match patterns cannot limit a host grant to one port; the actual
+OAuth DNR rule restricts port/path/tab. Scraping additionally uses `scripting`,
+`activeTab`, and optional HTTP(S) site grants requested when the user starts a run.
+No `tabs`, cookies, webRequest, or native messaging permission is used. The scraper
+content script remains independent of auth; see [scraping boundaries](scraping.md).
 
 OpenAI requests run in the background with host permissions, omitted cookies,
 no redirects, and bounded timeouts. The UI receives only sanitized errors, never
@@ -219,7 +221,8 @@ that OpenAI will accept the app.
 
 Manual real-account checks still required:
 
-1. Run `mise run dev`, open Scraper from the toolbar, set and confirm a PIN, then
+1. Run `mise run dev`, open Scraper from the toolbar, follow **Account settings**,
+   set and confirm a PIN, then
    choose **Continue with ChatGPT**. Authorize the registered app and plan scopes. Confirm the callback
    stays in the extension and settings show the correct verified account.
 2. Load models and send the fixed greeting. Confirm completion and check account

@@ -2,10 +2,20 @@
   "manifest_version": 3,
   "name": "Scraper",
   "version": "0.1.0",
-  "description": "Scraper with experimental browser-only ChatGPT account sign-in.",
+  "description": "Extract structured data locally using JSON specifications, with optional experimental ChatGPT sign-in.",
   "icons": {
-    "48": "icons/scraper.svg",
-    "96": "icons/scraper.svg"
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    },
+    "default_title": "Scrape this page"
   },
   "browser_specific_settings": {
     "gecko": {
@@ -16,13 +26,7 @@
       }
     }
   },
-  "content_scripts": [
-    {
-      "matches": ["*://*.mozilla.org/*"],
-      "js": ["content.js"]
-    }
-  ],
-  "permissions": ["storage", "declarativeNetRequestWithHostAccess"],
+  "permissions": ["storage", "declarativeNetRequest", "scripting", "activeTab"],
   "host_permissions": [
     "http://127.0.0.1/*",
     "https://auth.openai.com/*",
@@ -35,14 +39,12 @@
     "page": "settings.html",
     "open_in_tab": true
   },
-  "action": {
-    "default_title": "Scraper account"
-  },
   "web_accessible_resources": [
     {
       "resources": ["callback.html"],
       "matches": ["http://127.0.0.1/*", "https://auth.openai.com/*"]
     }
   ],
-  "incognito": "not_allowed"
+  "incognito": "not_allowed",
+  "optional_host_permissions": ["http://*/*", "https://*/*"]
 }

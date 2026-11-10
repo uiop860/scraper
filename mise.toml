@@ -39,7 +39,7 @@ depends = ["lint"]
 run = "web-ext build --source-dir build --artifacts-dir dist --overwrite-dest"
 
 [tasks.test]
-description = "Test OAuth protocol and background isolation with mocks"
+description = "Test scraping fixtures, runtime traversal, OAuth and background isolation"
 depends = ["install"]
 run = "node --test tests/*.test.mjs"
 
@@ -47,3 +47,8 @@ run = "node --test tests/*.test.mjs"
 description = "Verify synthetic loopback interception in a temporary headless Firefox profile"
 depends = ["compile"]
 run = "node scripts/firefox-smoke.mjs"
+
+[tasks."test:scraper:firefox"]
+description = "Verify rendered scraping, pagination, detail visits and origin blocking in headless Firefox"
+depends = ["compile"]
+run = "node scripts/scraper-firefox-smoke.mjs"

@@ -1,0 +1,413 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { readFile } from "node:fs/promises";
+import { parseHTML } from "linkedom";
+import { bundle } from "./helpers.mjs";
+const { parseSpec, navigationUrl, LIMITS } = await import(
+  await bundle("extension/scraper/spec.ts")
+);
+const { extract, waitForDom } = await import(
+  await bundle("extension/scraper/dom.ts")
+);
+const { runScraper } = await import(
+  await bundle("extension/scraper/runner.ts")
+);
+const { guardRules } = await import(await bundle("extension/scraper/guard.ts"));
+const html = await readFile(
+  new URL("./fixtures/list.html", import.meta.url),
+  "utf8",
+);
+const start = "https://market.test/search";
+const spec = {
+  version: 1,
+  name: "Fixture",
+  list: {
+    itemSelector: ".card",
+    fields: {
+      title: { selector: "h2", value: "text" },
+      url: {
+        selector: "a",
+        value: "attribute",
+        attribute: "href",
+        resolveUrl: true,
+      },
+      price: { selector: ".price", value: "text", optional: true },
+      images: {
+        selector: "img",
+        value: "attribute",
+        attribute: "src",
+        resolveUrl: true,
+        multiple: true,
+      },
+      seller: {
+        selector: ".seller",
+        fields: { name: { selector: "b", value: "text" } },
+      },
+    },
+  },
+  detail: {
+    linkField: "url",
+    fields: { description: { selector: ".description", value: "text" } },
+  },
+  pagination: { type: "next", selector: "a[rel=next]" },
+};
+function document(markup = html) {
+  return parseHTML(markup).document;
+}
+function fixtureDriver(pages) {
+  const calls = [];
+  let closed = 0;
+  return {
+    calls,
+    get closed() {
+      return closed;
+    },
+    async visit(url, kind, spec) {
+      calls.push(url);
+      const markup = pages[url];
+      if (markup instanceof Error) throw markup;
+      if (markup === undefined) throw new Error(`Unexpected visit ${url}`);
+      return extract(document(markup), spec, kind, url);
+    },
+    async close() {
+      closed++;
+    },
+  };
+}
+const signal = () => new AbortController().signal;
+
+test("strict schema, selector validation, recursion, and malicious properties", () => {
+  assert.equal(parseSpec(spec).version, 1);
+  for (const input of [
+    { ...spec, version: 2 },
+    { ...spec, execute: "alert(1)" },
+    {
+      ...spec,
+      list: {
+        ...spec.list,
+        fields: { x: { selector: "h2", value: "javascript" } },
+      },
+    },
+    JSON.parse(
+      '{"version":1,"name":"x","list":{"itemSelector":"a","fields":{"__proto__":{"selector":"a","value":"text"}}}}',
+    ),
+    { ...spec, detail: { ...spec.detail, linkField: "title" } },
+    { ...spec, pagination: { type: "click", selector: "button" } },
+    "{".repeat(10000),
+    " ".repeat(LIMITS.specBytes + 1),
+  ])
+    assert.throws(() => parseSpec(input));
+  const bad = structuredClone(spec);
+  bad.list.fields.title.selector = "[";
+  assert.throws(
+    () => parseSpec(bad, (s) => document().querySelector(s)),
+    /Invalid CSS/,
+  );
+  let nested = { selector: "div", value: "text" };
+  for (let i = 0; i < 7; i++) nested = { selector: "div", fields: { nested } };
+  assert.throws(() =>
+    parseSpec({
+      version: 1,
+      name: "deep",
+      list: { itemSelector: "div", fields: { nested } },
+    }),
+  );
+});
+
+test("text, attributes, nested fields, multiple matches, missing values and hostile base URL", () => {
+  const page = extract(document(), parseSpec(spec), "list", start);
+  assert.equal(page.items.length, 2);
+  assert.equal(page.items[0].title, "Sewing machine");
+  assert.equal(page.items[0].url, "https://market.test/detail/1");
+  assert.deepEqual(page.items[0].images, [
+    "https://market.test/a.jpg",
+    "https://market.test/b.jpg",
+  ]);
+  assert.deepEqual(page.items[0].seller, { name: "Alice" });
+  assert.equal(page.items[1].price, null);
+  assert.equal(page.items[1].seller, null);
+  assert.deepEqual(page.items[1].images, []);
+  assert.ok(
+    page.diagnostics.some((d) => d.path.endsWith("seller") && d.matches === 0),
+  );
+  assert.ok(!page.diagnostics.some((d) => d.path.endsWith("price")));
+  assert.equal(page.next, "?page=2");
+  const bad = structuredClone(spec);
+  bad.list.fields.title.selector = "[";
+  assert.ok(
+    extract(document(), bad, "list", start).diagnostics.some(
+      (d) => d.code === "invalid_selector",
+    ),
+  );
+  const unsafe = extract(
+    document(
+      '<article class="card"><a href="javascript:alert(1)"></a></article>',
+    ),
+    spec,
+    "list",
+    start,
+  );
+  assert.equal(unsafe.items[0].url, null);
+  assert.ok(unsafe.diagnostics.some((d) => d.code === "invalid_url"));
+});
+
+test("pagination, detail pages, deduplication, cycles and structured source URLs", async () => {
+  const driver = fixtureDriver({
+    [start]: html,
+    "https://market.test/detail/1": '<p class="description">Works well</p>',
+    "https://market.test/detail/2": '<p class="description">Like new</p>',
+    "https://market.test/search?page=2": html.replace("?page=2", "/search"),
+  });
+  const result = await runScraper(spec, start, driver, signal());
+  assert.equal(result.status, "completed");
+  assert.equal(result.items.length, 2);
+  assert.equal(driver.calls.length, 4);
+  assert.equal(driver.closed, 1);
+  assert.deepEqual(result.items[0].detail, { description: "Works well" });
+  assert.deepEqual(result.items[0].source, {
+    list: start,
+    detail: "https://market.test/detail/1",
+  });
+  assert.ok(result.diagnostics.some((d) => d.code === "pagination_cycle"));
+});
+
+test("detail failures retain listing data, duplicate detail links are visited once", async () => {
+  const driver = fixtureDriver({
+    [start]: html
+      .replace("/detail/2", "/detail/1")
+      .replace('<a rel="next" href="?page=2">Next</a>', ""),
+    "https://market.test/detail/1": new Error("Timeout"),
+  });
+  const result = await runScraper(
+    { ...spec, identityField: "title" },
+    start,
+    driver,
+    signal(),
+  );
+  assert.equal(result.status, "completed");
+  assert.equal(result.items.length, 2);
+  assert.equal(driver.calls.length, 2);
+  assert.equal(result.items[0].detail, null);
+  assert.ok(result.diagnostics.some((d) => d.code === "detail_failed"));
+});
+
+test("navigation restrictions reject off-origin targets, credentials and schemes", async () => {
+  for (const url of [
+    "https://market.test.evil.test/x",
+    "http://market.test/x",
+    "https://market.test:444/x",
+    "https://user@market.test/x",
+    "javascript:alert(1)",
+    "file:///tmp/x",
+  ])
+    assert.throws(() => navigationUrl(url, start, new URL(start).origin));
+  assert.equal(
+    navigationUrl("/a#b", start, new URL(start).origin),
+    "https://market.test/a",
+  );
+  const driver = fixtureDriver({
+    [start]: html
+      .replace("?page=2", "https://evil.test/")
+      .replaceAll("/detail/", "https://evil.test/detail/"),
+  });
+  const result = await runScraper(spec, start, driver, signal());
+  assert.equal(result.status, "failed");
+  assert.deepEqual(driver.calls, [start]);
+  assert.equal(result.items.length, 2);
+});
+
+test("engine independently enforces page, item and result limits", async () => {
+  let count = 0;
+  const driver = {
+    async visit(url) {
+      count++;
+      return {
+        url,
+        items: [{ title: String(count) }],
+        next: `?p=${count}`,
+        diagnostics: [],
+      };
+    },
+    async close() {},
+  };
+  const simple = {
+    version: 1,
+    name: "limits",
+    list: {
+      itemSelector: "a",
+      fields: { title: { selector: "a", value: "text" } },
+    },
+    pagination: { type: "next", selector: "a" },
+  };
+  const pageLimit = await runScraper(simple, start, driver, signal());
+  assert.equal(pageLimit.status, "limited");
+  assert.equal(count, LIMITS.pages);
+  const many = {
+    async visit(url) {
+      return {
+        url,
+        items: Array.from({ length: 201 }, (_, i) => ({ title: String(i) })),
+        next: null,
+        diagnostics: [],
+      };
+    },
+    async close() {},
+  };
+  const itemLimit = await runScraper(simple, start, many, signal());
+  assert.equal(itemLimit.items.length, LIMITS.items);
+  assert.equal(itemLimit.status, "limited");
+  const huge = {
+    async visit(url) {
+      return {
+        url,
+        items: [{ title: "x".repeat(LIMITS.resultBytes) }],
+        next: null,
+        diagnostics: [],
+      };
+    },
+    async close() {},
+  };
+  const sizeLimit = await runScraper(simple, start, huge, signal());
+  assert.equal(sizeLimit.status, "limited");
+  assert.equal(sizeLimit.items.length, 0);
+});
+
+test("cancellation interrupts an unresponsive driver and preserves partial data", async () => {
+  const controller = new AbortController();
+  let closed = false;
+  const driver = {
+    async visit(url, kind) {
+      if (kind === "list")
+        return {
+          url,
+          items: [{ url: "/detail/1", title: "saved" }],
+          next: null,
+          diagnostics: [],
+        };
+      controller.abort();
+      return new Promise(() => {});
+    },
+    async close() {
+      closed = true;
+    },
+  };
+  const result = await runScraper(spec, start, driver, controller.signal);
+  assert.equal(result.status, "cancelled");
+  assert.equal(result.items[0].data.title, "saved");
+  assert.equal(closed, true);
+});
+
+test("dynamic content waits for insertion and settles; timeouts and cancellation release observers", async () => {
+  const doc = document("<main></main>");
+  const waiting = waitForDom(doc, ".ready", signal(), 200, 10);
+  setTimeout(() => {
+    doc.querySelector("main").innerHTML = '<p class="ready">Loaded</p>';
+  }, 10);
+  await waiting;
+  await assert.rejects(waitForDom(doc, ".never", signal(), 20, 1), /timed out/);
+  const controller = new AbortController();
+  const cancelled = waitForDom(doc, ".never", controller.signal, 100, 1);
+  controller.abort();
+  await assert.rejects(cancelled, /Cancelled/);
+  await assert.rejects(waitForDom(doc, "[", signal(), 20, 1), /Invalid/);
+});
+
+test("navigation guard is tab-scoped and permits only exact origin boundaries", () => {
+  const [block, allow] = guardRules(42, "https://market.test");
+  assert.deepEqual(block.condition.tabIds, [42]);
+  assert.equal(block.action.type, "block");
+  assert.ok(allow.priority > block.priority);
+  const regex = new RegExp(allow.condition.regexFilter);
+  assert.ok(regex.test(start));
+  for (const url of [
+    "https://market.test.evil/x",
+    "http://market.test/x",
+    "https://market.test:444/x",
+    "https://marketXtest/x",
+  ])
+    assert.ok(!regex.test(url));
+});
+
+test("execution deadline cancels a stalled visit without relying on the spec", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const entered = Promise.withResolvers();
+  let closed = false;
+  const driver = {
+    async visit() {
+      entered.resolve();
+      return new Promise(() => {});
+    },
+    async close() {
+      closed = true;
+    },
+  };
+  const running = runScraper(spec, start, driver, signal());
+  await entered.promise;
+  t.mock.timers.tick(LIMITS.durationMs);
+  const result = await running;
+  assert.equal(result.status, "limited");
+  assert.match(result.stopReason, /time limit/);
+  assert.equal(closed, true);
+});
+
+test("unrelated continuously updating content does not starve readiness", async () => {
+  const doc = document('<main class="ready">Ready</main><aside>Ads</aside>');
+  const interval = setInterval(() => {
+    doc.querySelector("aside").textContent = String(Math.random());
+  }, 2);
+  try {
+    await waitForDom(doc, ".ready", signal(), 100, 15);
+  } finally {
+    clearInterval(interval);
+  }
+});
+
+test("readiness timeout distinguishes missing matches from unstable matched content", async () => {
+  const doc = document('<main class="ready">Ready</main>');
+  await assert.rejects(
+    waitForDom(doc, ".listing-card", signal(), 20, 5),
+    (error) => {
+      assert.equal(error.selector, ".listing-card");
+      assert.equal(error.matches, 0);
+      assert.match(error.message, /matched 0 elements/);
+      return true;
+    },
+  );
+  const interval = setInterval(() => {
+    doc.querySelector("main").textContent = String(Math.random());
+  }, 2);
+  try {
+    await assert.rejects(
+      waitForDom(doc, ".ready", signal(), 30, 15),
+      (error) => {
+        assert.equal(error.matches, 1);
+        assert.match(error.message, /kept changing/);
+        return true;
+      },
+    );
+  } finally {
+    clearInterval(interval);
+  }
+});
+
+test("DBA example extracts actual listing structure without illustrative classes", async () => {
+  const { dbaListings } = await import(
+    await bundle("extension/scraper/dba.ts")
+  );
+  const doc = document(
+    '<article class="sf-search-ad"><a class="sf-search-ad-link" href="/recommerce/forsale/item/123"></a><h2>Machine</h2><div class="font-bold"><span>500 kr.</span></div><img src="https://images.dbastatic.dk/a.jpg"></article>',
+  );
+  const page = extract(
+    doc,
+    parseSpec(dbaListings),
+    "list",
+    "https://www.dba.dk/recommerce/forsale/search",
+  );
+  assert.equal(page.items.length, 1);
+  assert.equal(page.items[0].price, "500 kr.");
+  assert.equal(
+    page.items[0].url,
+    "https://www.dba.dk/recommerce/forsale/item/123",
+  );
+  assert.equal(page.diagnostics.length, 0);
+});

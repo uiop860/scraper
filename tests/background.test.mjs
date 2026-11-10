@@ -65,6 +65,7 @@ async function harness(initial = {}) {
       },
     },
     tabs: {
+      onUpdated: { addListener() {} },
       async create() {
         return { id: 42 };
       },

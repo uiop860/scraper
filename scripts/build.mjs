@@ -9,6 +9,7 @@ async function compile() {
       "extension/content.ts",
       "extension/background.ts",
       "extension/settings.ts",
+      "extension/scraper.ts",
       "extension/callback.ts",
     ],
     outdir: "build",
