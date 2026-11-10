@@ -4,12 +4,42 @@ Open a marketplace search in a regular Firefox tab and click **Scrape this page*
 Replace the example selectors, click **Validate JSON**, then **Allow site access
 and run**. Firefox requests access to that site. Results appear as JSON and can
 be downloaded, including partial results after cancellation or a failure. No
-sign-in or AI request is involved. Account settings are linked from the scraper.
+sign-in or AI request is involved in manual runs. Account settings are linked from the scraper.
 
 A separate worker tab loads listing and detail pages sequentially. Leave the
 scraper UI open; closing or navigating away from it ends the run and closes its
 worker. Closing the worker interrupts extraction. Runs do not resume after a
 browser restart. Results are held in the UI's memory; download them before closing.
+
+## Generate JSON with an agent
+
+Sign in and unlock your account in **Account settings**. In the scraper, click
+**Load models**, select a model, describe the data to extract, then click
+**Allow site access and generate**. This sends bounded rendered page samples and
+extracted test data to OpenAI using your selected model. Firefox requests optional
+website-content and browsing-activity sharing consent alongside site access;
+the background checks consent before each model turn. Authentication tokens
+stay in the background extension context.
+
+The agent has three tools:
+
+- `inspect_page` reads sanitized rendered HTML, with focused CSS selectors and
+  navigation restricted to the starting origin. Scripts, form values, and editable
+  content are excluded from inspection; page text is treated as untrusted data.
+- `test_scraper` validates a candidate specification with the existing schema and
+  runs the real extraction engine on the starting listing, the first item's detail
+  page, and one next listing page when those features are configured. The agent
+  receives row samples, counts, and selector diagnostics, and can revise and retry.
+- `finish_scraper` accepts only the exact JSON that passed a test after inspection.
+  Failed extraction, empty results, and required-field diagnostics prevent a pass.
+
+A successful specification appears in the JSON editor, ready to review and run.
+The activity log shows test coverage. If no next-page link is found, pagination
+is explicitly reported as unverified. A sample test does not verify every item or
+page. Generation stops after 12 model turns, 24 tool calls, or five minutes;
+**Cancel** interrupts it and closes the worker. Existing editor contents are
+preserved if generation fails or is cancelled. Full scraping runs separately
+through **Allow site access and run**.
 
 ## Specification
 
@@ -61,7 +91,11 @@ Selectors in this example are illustrative, not verified against DBA.dk:
   also use `multiple` and `optional`.
 - Listing selectors are relative to the item, detail selectors to the document,
   and nested selectors to their matched container. Use `:scope` to read an item
-  or nested container itself. CSS cannot cross frame or shadow-root boundaries.
+  or nested container itself. Use `host >>> descendant` to enter an open shadow
+  root, for example `podium-layout >>> [data-testid="description"]`. Each segment
+  is ordinary CSS; up to eight segments and 200 hosts per boundary are supported.
+  Inspection, extraction and readiness use the same selector syntax. Closed shadow
+  roots and frames cannot be crossed.
 - Text uses `textContent`, collapses whitespace and trims. It is not limited to
   visible text. Attribute values are returned literally unless `resolveUrl` is
   true; resolved URLs must be HTTP(S), without embedded credentials. URLs resolve
@@ -140,11 +174,11 @@ responsiveness cannot be guaranteed for pathological pages/selectors.
 ## Results and diagnosis
 
 Results contain `status` (`completed`, `limited`, `cancelled`, `failed`),
-`stopReason`, timestamps, approved origin, starting URL, items, document visit
-records and diagnostics. Each item has listing data, separate detail data and
-source URLs. Visit records include requested/final URLs, page kind and success.
-Diagnostics include code, URL, field path and selector/match count where relevant.
-A completed traversal may still have field or detail warnings; inspect diagnostics.
+`stopReason`, timestamps, approved origin, starting URL and items. Each item has
+listing data and separate detail data. The displayed and downloaded JSON excludes
+`pages`, `diagnostics` and each item's `source`; visit tracking and extraction diagnostics
+remain internal to the engine. A completed traversal may still have missing fields
+or failed details.
 No DOM dumps or persistent scraping logs are stored. Exports can contain private
 page content and source URL query strings selected by your specification.
 
@@ -167,29 +201,18 @@ Before relying on DBA.dk, manually verify:
 6. Partial JSON download, duplicate listings and pagination loops.
 
 Restricted Firefox/Mozilla pages cannot be scripted. Anti-bot challenges, infinite
-scrolling, button-only pagination, recursive detail traversal, shadow DOM and
-cross-origin frames are unsupported. Background tabs may receive throttled site
+scrolling, button-only pagination, recursive detail traversal, closed shadow roots
+and cross-origin frames are unsupported. Background tabs may receive throttled site
 updates. This milestone does not claim compatibility with unverified DBA selectors.
 
-## Later AI integration
+## Agent inspection
 
-The existing background-only OpenAI client and unlocked OAuth lifecycle can be
-reused for generation without changing this interpreter. The next step is a
-bounded page-structure inspector (repeated elements, safe attribute names, small
-text samples and navigation links), excluding scripts, form values and unrelated
-sensitive content. Show the outbound sample to the user before sending it.
-
-Treat all page samples as untrusted data, explicitly separate them from model
-instructions, and never give the generator tool execution or credentials. Prefer
-schema-constrained Responses output if the selected account model supports it;
-that capability needs live verification beyond the existing greeting test. Parse
-and validate generated JSON locally, display it for review, and require the same
-explicit run action and origin policy. Sending page data would also require
-updating the extension's data-collection declaration and UI disclosure.
-
-Future repairs, pagination strategies, template libraries, visual selection and
-alternative syntax can target the same versioned internal contract. They are not
-implemented in this milestone.
+The inspector reports open shadow roots with selector prefixes, heading previews
+and description-region hints. It does not execute page scripts or open closed
+roots. The agent can inspect those regions with `>>>`, then use the same selectors
+in its specification. Readiness observes queried shadow roots and detects delayed
+root attachment. The activity log includes inspected URLs, selectors, match counts,
+truncation, discovered shadow roots, tool errors and extraction-test results.
 
 API references: [script injection](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/scripting/executeScript),
 [optional host permissions](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/optional_host_permissions),
@@ -198,14 +221,21 @@ API references: [script injection](https://developer.mozilla.org/en-US/docs/Mozi
 
 ## DBA search example
 
-On `www.dba.dk/recommerce/forsale/search`, the UI now prefills a current-page
-listing example using `article.sf-search-ad`, `h2`, `div.font-bold > span` and
+On `www.dba.dk/recommerce/forsale/search`, the UI prefills a listing-and-detail
+specification using `article.sf-search-ad`, `h2`, `div.font-bold > span` and
 `a.sf-search-ad-link[href]`. These selectors matched 54 listings, titles, prices
 and links during inspection on 2026-11-10. The earlier `.listing-card` example
 matches no DBA listings. JSON validation checks syntax, not whether the current
 website contains matching elements.
 
-The DBA example intentionally covers the current listing page only. The inspected
-page has no light-DOM `a[rel="next"]`, and its pagination uses a custom element.
-Detail selectors and automatic DBA pagination still need site-specific support;
-this example does not imply that those features have been verified on DBA.
+DBA item pages render their listing content inside `podium-layout`'s open shadow
+root. The preset follows each listing's `url` and reads its full description with
+`podium-layout >>> [data-testid="description"] .whitespace-pre-wrap`, waiting for
+that element before extracting it. The selector was checked on a live item page;
+synthetic tests cover multiple listings and delayed shadow content in Firefox.
+Descriptions appear under each result item's `detail.description`.
+
+Automatic DBA pagination is not preconfigured. Ask the agent to inspect and test
+next-page links if the search spans multiple pages. The normal page, item, visit
+and time limits still apply; the preset alone processes the current search page
+and each of its permitted detail links.

@@ -1,3 +1,5 @@
+import { validateSelector } from "./scraper/selectors";
+import { inspectPage } from "./scraper/inspect";
 import { parseSpec, navigationUrl } from "./scraper/spec";
 import { extract, waitForDom, ReadinessError } from "./scraper/dom";
 
@@ -12,18 +14,37 @@ browser.runtime.onMessage.addListener(async (message: unknown, sender) => {
     typeof message !== "object" ||
     message === null ||
     !("type" in message) ||
-    message.type !== "scraper.extract"
+    !["scraper.extract", "scraper.inspect"].includes(String(message.type))
   )
     return;
   const task = message as Record<string, unknown>;
   try {
+    if (task.type === "scraper.inspect") {
+      if (
+        typeof task.origin !== "string" ||
+        typeof task.selector !== "string" ||
+        !task.selector ||
+        task.selector.length > 500
+      )
+        throw new Error("Invalid inspection task.");
+      navigationUrl(location.href, location.href, task.origin);
+      const controller = new AbortController();
+      const unload = () => controller.abort();
+      window.addEventListener("pagehide", unload, { once: true });
+      try {
+        // Inspection takes a bounded snapshot even when ads or clocks keep changing.
+        await waitForDom(document, undefined, controller.signal);
+        navigationUrl(location.href, location.href, task.origin);
+        return { ok: true, inspection: inspectPage(task.selector) };
+      } finally {
+        window.removeEventListener("pagehide", unload);
+      }
+    }
     if (task.kind !== "list" && task.kind !== "detail")
       throw new Error("Invalid extraction task.");
     if (typeof task.origin !== "string") throw new Error("Invalid origin.");
     navigationUrl(location.href, location.href, task.origin);
-    const spec = parseSpec(task.spec, (s) => {
-      document.querySelector(s);
-    });
+    const spec = parseSpec(task.spec, validateSelector);
     const section = task.kind === "list" ? spec.list : spec.detail;
     if (!section) throw new Error("Missing detail specification.");
     const controller = new AbortController();

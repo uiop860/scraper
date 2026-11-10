@@ -9,7 +9,7 @@ const { parseSpec, navigationUrl, LIMITS } = await import(
 const { extract, waitForDom } = await import(
   await bundle("extension/scraper/dom.ts")
 );
-const { runScraper } = await import(
+const { runScraper, resultJson } = await import(
   await bundle("extension/scraper/runner.ts")
 );
 const { guardRules } = await import(await bundle("extension/scraper/guard.ts"));
@@ -169,6 +169,14 @@ test("pagination, detail pages, deduplication, cycles and structured source URLs
     detail: "https://market.test/detail/1",
   });
   assert.ok(result.diagnostics.some((d) => d.code === "pagination_cycle"));
+  const exported = JSON.parse(resultJson(result));
+  assert.equal(Object.hasOwn(exported, "pages"), false);
+  assert.equal(Object.hasOwn(exported, "diagnostics"), false);
+  assert.deepEqual(
+    exported.items,
+    result.items.map((item) => ({ data: item.data, detail: item.detail })),
+  );
+  assert.ok(exported.items.every((item) => !Object.hasOwn(item, "source")));
 });
 
 test("detail failures retain listing data, duplicate detail links are visited once", async () => {

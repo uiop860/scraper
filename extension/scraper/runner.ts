@@ -35,6 +35,22 @@ export interface Result {
   pages: Visit[];
   diagnostics: (Diagnostic & { url: string })[];
 }
+// Keep execution bookkeeping out of the user-facing JSON.
+export function resultJson(result: Result): string {
+  return JSON.stringify(
+    {
+      ...result,
+      pages: undefined,
+      diagnostics: undefined,
+      items: result.items.map((item) => ({
+        data: item.data,
+        detail: item.detail,
+      })),
+    },
+    null,
+    2,
+  );
+}
 export interface Progress {
   phase: string;
   url: string;

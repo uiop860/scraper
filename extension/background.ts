@@ -1,4 +1,5 @@
 import "./scraper/background";
+import { registerScraperAgent } from "./scraper/agent-background";
 import { Authentication } from "./auth/lifecycle";
 import {
   AuthError,
@@ -30,6 +31,7 @@ interface Pending extends Attempt {
 let pending: Pending | undefined;
 let starting: Promise<void> | undefined;
 const auth = new Authentication();
+registerScraperAgent(auth);
 let notice = "";
 let catalog: { id: string; name: string }[] = [];
 let requesting = false;

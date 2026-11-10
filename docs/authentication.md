@@ -165,8 +165,11 @@ content script remains independent of auth; see [scraping boundaries](scraping.m
 OpenAI requests run in the background with host permissions, omitted cookies,
 no redirects, and bounded timeouts. The UI receives only sanitized errors, never
 raw response bodies or authentication URLs. The manifest declares authentication
-data collection. Adding scraping uploads will require revisiting Mozilla's data
-collection declarations and consent requirements.
+data collection. AI scraper generation declares optional `websiteContent` and
+`browsingActivity` collection. The Generate button requests these permissions
+alongside site access, and the background checks consent before every model turn.
+Page samples, selected URLs and extracted test rows are sent to OpenAI only during
+user-started generation; manual scraping stays local.
 
 The token/revocation/JWKS paths are pinned to the paths observed in OpenAI's live
 OIDC discovery document on 2026-11-10. The document advertises identity scopes;
@@ -177,9 +180,12 @@ reported successful real-account login and a completed upstream greeting.
 
 The account-specific catalog comes from `https://api.openai.com/v1/models` using
 the OAuth bearer token. Only entries with `visibility: list` populate the selector.
-The fixed greeting goes to `/v1/responses` with `store: false` and `stream: true`.
-There is no API key, ChatGPT cookie extraction, Codex client impersonation, private
-`backend-api` endpoint, automatic tool execution, or scraped-page upload.
+The fixed greeting and agent turns go to `/v1/responses` with `store: false` and
+`stream: true`. Agent turns include bounded conversation history, tool definitions,
+and encrypted reasoning items for stateless continuation. The scraper UI executes
+only the defined inspection, extraction-test, and submission tools, with same-origin
+navigation limits. There is no API key, ChatGPT cookie extraction, Codex client
+impersonation, or private `backend-api` endpoint.
 
 The official OpenAI JavaScript SDK generates requests and decodes SSE, including
 streams with missing or mismatched Content-Type headers. SDK logging and automatic

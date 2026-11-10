@@ -1,8 +1,10 @@
 import type { Spec } from "./spec";
-// Checked against DBA's search DOM, 2026-11-10. Light-DOM listings only.
+// Checked against DBA search and an item page, 2026-11-10.
+const description =
+  'podium-layout >>> [data-testid="description"] .whitespace-pre-wrap';
 export const dbaListings: Spec = {
   version: 1,
-  name: "DBA listings (current page)",
+  name: "DBA listings with descriptions",
   identityField: "url",
   list: {
     itemSelector: "article.sf-search-ad",
@@ -28,5 +30,10 @@ export const dbaListings: Spec = {
         optional: true,
       },
     },
+  },
+  detail: {
+    linkField: "url",
+    waitFor: { selector: description },
+    fields: { description: { selector: description, value: "text" } },
   },
 };

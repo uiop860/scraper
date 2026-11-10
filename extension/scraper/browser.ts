@@ -1,18 +1,26 @@
+import type { inspectPage } from "./inspect";
 import type { PageDriver } from "./runner";
 import { ExtractionError, type Snapshot, type Diagnostic } from "./dom";
 import { LIMITS, navigationUrl, type Spec } from "./spec";
 
-export function browserDriver(tab: number, origin: string): PageDriver {
+export function browserDriver(
+  tab: number,
+  origin: string,
+): PageDriver & {
+  inspect(
+    url: string,
+    selector: string,
+    signal: AbortSignal,
+  ): Promise<ReturnType<typeof inspectPage>>;
+} {
   let closed = false;
-  return {
-    async visit(
-      url: string,
-      kind: "list" | "detail",
-      spec: Spec,
-      signal: AbortSignal,
-    ): Promise<Snapshot> {
-      if (closed) throw new Error("Worker closed.");
-      navigationUrl(url, url, origin);
+  let injectedUrl = "";
+  async function load(url: string, signal: AbortSignal, reuse = false) {
+    if (closed) throw new Error("Worker closed.");
+    navigationUrl(url, url, origin);
+    signal.throwIfAborted();
+    const previous = reuse ? await browser.tabs.get(tab) : undefined;
+    if (!(previous?.url === url && previous.status === "complete"))
       await new Promise<void>((resolve, reject) => {
         const cleanup = () => {
           clearTimeout(timer);
@@ -65,15 +73,51 @@ export function browserDriver(tab: number, origin: string): PageDriver {
           .update(tab, { url })
           .catch(() => done(new Error("Could not navigate worker tab.")));
       });
-      signal.throwIfAborted();
-      const current = await browser.tabs.get(tab);
-      if (!current.url) throw new Error("Worker URL unavailable.");
-      navigationUrl(current.url, url, origin);
+    signal.throwIfAborted();
+    const current = await browser.tabs.get(tab);
+    if (!current.url) throw new Error("Worker URL unavailable.");
+    navigationUrl(current.url, url, origin);
+    if (!(
+      reuse &&
+      previous?.url === current.url &&
+      injectedUrl === current.url
+    )) {
       await browser.scripting.executeScript({
         target: { tabId: tab, frameIds: [0] },
         files: ["content.js"],
       });
+      injectedUrl = current.url;
+    }
+    signal.throwIfAborted();
+  }
+  return {
+    async inspect(url, selector, signal) {
+      await load(url, signal, true);
+      const response = (await browser.tabs.sendMessage(
+        tab,
+        { type: "scraper.inspect", origin, selector },
+        { frameId: 0 },
+      )) as
+        | {
+            ok: boolean;
+            inspection?: ReturnType<typeof inspectPage>;
+            error?: string;
+          }
+        | undefined;
       signal.throwIfAborted();
+      const result = response?.inspection;
+      if (!response?.ok || !result)
+        throw new Error(response?.error ?? "Page inspection unavailable.");
+      navigationUrl(result.url, url, origin);
+      return result;
+    },
+    async visit(
+      url: string,
+      kind: "list" | "detail",
+      spec: Spec,
+      signal: AbortSignal,
+    ): Promise<Snapshot> {
+      await load(url, signal);
       const response = (await browser.tabs.sendMessage(
         tab,
         { type: "scraper.extract", spec, kind, origin },

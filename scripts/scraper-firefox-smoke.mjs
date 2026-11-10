@@ -21,7 +21,12 @@ const server = createServer((req, res) => {
   }
   res.setHeader("Content-Type", "text/html");
   if (req.url.startsWith("/detail/")) {
-    res.end(`<p class="description">Detail ${req.url.at(-1)}</p>`);
+    res.end(`<podium-layout></podium-layout><script>
+      setTimeout(() => {
+        const root = document.querySelector('podium-layout').attachShadow({mode:'open'});
+        root.innerHTML = '<section data-testid="description"><p class="description">Detail ${req.url.at(-1)}</p></section>';
+      }, 150);
+    </script>`);
     return;
   }
   const second = req.url.includes("page=2");
@@ -68,11 +73,12 @@ try {
   await compile(
     `
     import { runScraper } from './extension/scraper/runner';
+    import { generateScraper } from './extension/scraper/agent';
     import { browserDriver } from './extension/scraper/browser';
     const origin = ${JSON.stringify(origin)};
     const spec = {version:1, name:'Firefox fixture', list:{itemSelector:'article', fields:{
       title:{selector:'h2',value:'text'}, url:{selector:'a',value:'attribute',attribute:'href',resolveUrl:true}}},
-      detail:{linkField:'url', fields:{description:{selector:'.description',value:'text'}}},
+      detail:{linkField:'url', waitFor:{selector:'podium-layout >>> .description'}, fields:{description:{selector:'podium-layout >>> .description',value:'text'}}},
       pagination:{type:'next',selector:'a[rel=next]'}};
     async function open(url) {
       const source = await browser.tabs.create({url:'about:blank',active:false});
@@ -89,6 +95,28 @@ try {
       return {worker, source};
     }
     (async () => {
+      const generated = await open(origin + '/list');
+      let turn = 0;
+      const agentSpec = await generateScraper('Extract titles and descriptions across pages', origin+'/list', browserDriver(generated.worker.tab,origin), async (input) => {
+        turn++;
+        const name = turn <= 2 ? 'inspect_page' : turn === 3 ? 'test_scraper' : 'finish_scraper';
+        if (turn === 2) {
+          const inspected = JSON.parse(input.at(-1).output);
+          if (!inspected.samples?.some(html => html.includes('Machine 1'))) throw new Error('Agent inspection missed rendered content: '+JSON.stringify(inspected));
+        }
+        if (turn === 3) {
+          const inspected = JSON.parse(input.at(-1).output);
+          if (!inspected.shadowRoots?.some(context => context.regions.some(region => region.text.includes('Detail 1')))) throw new Error('Shadow DOM was not discoverable: '+JSON.stringify(inspected));
+        }
+        if (turn === 4) {
+          const tested = JSON.parse(input.at(-1).output);
+          if (!tested.passed || tested.pages.length !== 3 || tested.pages[1].samples[0].description !== 'Detail 1') throw new Error('Agent test failed: '+JSON.stringify(tested));
+        }
+        const args = turn <= 2 ? {url:origin+(turn === 1 ? '/list' : '/detail/1'),selector:'body'} : {spec:JSON.stringify(spec)};
+        return {output:[{type:'function_call',name,arguments:JSON.stringify(args),call_id:'call'+turn,id:'fc'+turn,status:'completed'}],text:''};
+      }, new AbortController().signal);
+      if (JSON.stringify(agentSpec) !== JSON.stringify(spec)) throw new Error('Agent JSON changed');
+      await browser.tabs.remove(generated.source.id);
       const {worker,source} = await open(origin + '/list');
       const result = await runScraper(spec,origin+'/list',browserDriver(worker.tab,origin),new AbortController().signal);
       if (result.status !== 'completed' || result.items.length !== 2 || result.pages.length !== 4 || result.items[1].detail.description !== 'Detail 2') throw new Error(JSON.stringify(result));
@@ -152,7 +180,7 @@ try {
   if (!outcome || blockedHits)
     throw new Error(`Off-origin destination received ${blockedHits} requests.`);
   console.log(
-    "Firefox scraper passed: rendered dynamic content, two listing pages, two detail pages, exact-origin redirect blocking before the destination received a request, and worker/rule cleanup.",
+    "Firefox scraper passed: agent inspection, sample testing and JSON generation, rendered dynamic content, two listing pages, two detail pages, exact-origin redirect blocking before the destination received a request, and worker/rule cleanup.",
   );
 } finally {
   if (child && child.exitCode === null) {

@@ -4,7 +4,6 @@ import {
   ISSUER,
   RESOURCE,
   parseTokens,
-  collectResponse,
   record,
   verifyIdentity,
   type Tokens,
@@ -105,11 +104,14 @@ export async function models(tokens: Tokens, signal: AbortSignal) {
           : (m.slug as string),
     }));
 }
-export async function testModel(
+export async function responseTurn(
   tokens: Tokens,
-  model: string,
+  params: Omit<
+    OpenAI.Responses.ResponseCreateParamsStreaming,
+    "stream" | "store"
+  >,
   signal: AbortSignal,
-) {
+): Promise<{ output: OpenAI.Responses.ResponseOutputItem[]; text: string }> {
   let details = "no response headers received";
   let bodyFailure: AuthError | undefined;
   let transportFailure: AuthError | undefined;
@@ -178,14 +180,34 @@ export async function testModel(
   try {
     const events = await client.responses.create(
       {
-        model,
-        input: [{ role: "user", content: "Say exactly: Hello from Scraper." }],
+        ...params,
         store: false,
         stream: true,
       },
       { signal },
     );
-    return await collectResponse(events);
+    let text = "";
+    for await (const event of events) {
+      if (event.type === "response.output_text.delta") text += event.delta;
+      if (
+        event.type === "response.completed" &&
+        event.response.status === "completed"
+      )
+        return { output: event.response.output ?? [], text };
+      if (
+        [
+          "error",
+          "response.failed",
+          "response.incomplete",
+          "response.cancelled",
+          "response.canceled",
+        ].includes(event.type)
+      )
+        throw new AuthError(
+          "The AI request did not complete. Check account access and usage limits.",
+        );
+    }
+    throw new AuthError("The AI stream ended before successful completion.");
   } catch (error) {
     if (bodyFailure) throw bodyFailure;
     if (transportFailure) throw transportFailure;
@@ -196,4 +218,21 @@ export async function testModel(
       `The AI response could not be read (${details}). Retry or check account access.`,
     );
   }
+}
+
+export async function testModel(
+  tokens: Tokens,
+  model: string,
+  signal: AbortSignal,
+) {
+  return (
+    await responseTurn(
+      tokens,
+      {
+        model,
+        input: [{ role: "user", content: "Say exactly: Hello from Scraper." }],
+      },
+      signal,
+    )
+  ).text;
 }

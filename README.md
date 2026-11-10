@@ -1,6 +1,6 @@
 # Scraper
 
-Firefox Manifest V3 extension for declarative JSON scraping, built with strict TypeScript and esbuild. It extracts rendered listing and detail pages locally, with optional experimental ChatGPT authentication.
+Firefox Manifest V3 extension for declarative JSON scraping, built with strict TypeScript and esbuild. It extracts rendered listing and detail pages locally, with an optional ChatGPT-powered agent that inspects pages, generates scraping JSON, tests it, and revises it using tool feedback.
 
 ## Setup
 
@@ -79,7 +79,9 @@ Builds are unsigned. Distribution through standard Firefox installations require
 Open a marketplace search tab and click the extension button to paste, validate,
 and run a JSON scraping specification. Listing pagination and detail pages run
 locally in a separate tab with exact-origin navigation limits. Download complete
-or partial JSON results; no AI or sign-in is required. See [scraping documentation](docs/scraping.md)
+or partial JSON results; no AI or sign-in is required for manual runs. To generate
+the JSON, sign in, load models, describe the data you want, and use **Allow site
+access and generate**. The agent inspects, tests and revises its specification. See [scraping documentation](docs/scraping.md)
 for the contract, examples, security boundaries, tests, and limitations.
 
 ## Experimental ChatGPT authentication

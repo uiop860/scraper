@@ -24,6 +24,27 @@
         Limits: 20 listing pages, 200 items, 220 document visits, one detail
         level, five minutes. Only next-page links are supported.
       </p>
+      <fieldset>
+        <legend>Generate a scraper with AI</legend>
+        <p>
+          Sign in and unlock in Account settings, then load models. Generation
+          sends rendered page samples and test results to OpenAI. The agent can
+          inspect pages, test its JSON, and revise it before returning a
+          specification.
+        </p>
+        <button id="load-models">Load models</button>
+        <label for="agent-model">Model</label>
+        <select id="agent-model" disabled></select>
+        <label for="agent-goal">What should be scraped?</label>
+        <textarea
+          id="agent-goal"
+          rows="3"
+          maxlength="4000"
+          placeholder="Extract listing titles, prices and links. Follow next pages and extract descriptions from detail pages."
+        ></textarea>
+        <button id="generate" disabled>Allow site access and generate</button>
+        <pre id="agent-log" aria-live="polite"></pre>
+      </fieldset>
       <label for="spec">JSON scraping specification</label>
       <textarea
         id="spec"

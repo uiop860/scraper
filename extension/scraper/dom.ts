@@ -1,3 +1,4 @@
+import { queryElements } from "./selectors";
 import { LIMITS, type Fields, type Spec } from "./spec";
 export type Value = string | null | Value[] | { [key: string]: Value };
 export type Data = Record<string, Value>;
@@ -33,10 +34,7 @@ export function extract(
     path: string,
   ): Element[] => {
     try {
-      const nodes =
-        selector === ":scope" && root.nodeType === 1
-          ? [root as Element]
-          : Array.from(root.querySelectorAll(selector));
+      const nodes = queryElements(root, selector);
       if (nodes.length > LIMITS.matches)
         report({
           code: "match_limit",
@@ -196,6 +194,7 @@ export function waitForDom(
       observer.disconnect();
       clearTimeout(deadline);
       clearTimeout(quiet);
+      clearInterval(poll);
       signal.removeEventListener("abort", abort);
     };
     const finish = (error?: Error) => {
@@ -209,7 +208,17 @@ export function waitForDom(
     const check = (records: MutationRecord[] = []) => {
       try {
         const next = selector
-          ? Array.from(doc.querySelectorAll(selector)).slice(0, LIMITS.matches)
+          ? queryElements(doc, selector, (root) => {
+              if (!observed.has(root)) {
+                observed.add(root);
+                observer.observe(root, {
+                  subtree: true,
+                  childList: true,
+                  attributes: true,
+                  characterData: true,
+                });
+              }
+            }).slice(0, LIMITS.matches)
           : [];
         const changed =
           next.length !== roots.length ||
@@ -242,6 +251,9 @@ export function waitForDom(
     const observer = new (
       doc.defaultView?.MutationObserver ?? MutationObserver
     )(check);
+    const observed = new Set<ParentNode>();
+    // Attaching a shadow root does not produce a light-DOM mutation event.
+    const poll = setInterval(() => check(), 100);
     const deadline = setTimeout(() => {
       const message = roots.length
         ? `DOM readiness timed out: selector ${JSON.stringify(selector)} matched ${roots.length} elements, but their content kept changing.`
