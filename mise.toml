@@ -1,0 +1,49 @@
+[tools]
+node = "24.22.2"
+"npm:web-ext" = "10.8.0"
+
+[tasks.install]
+description = "Install locked project dependencies"
+run = "npm ci"
+sources = ["package.json", "package-lock.json"]
+outputs = ["node_modules/.package-lock.json"]
+
+[tasks.compile]
+description = "Compile TypeScript and copy assets into build/"
+depends = ["install"]
+run = "node scripts/build.mjs"
+
+[tasks.dev]
+description = "Watch sources, check types, and run Firefox"
+depends = ["compile"]
+run = "npm exec -- concurrently --kill-others --names build,types,firefox 'node scripts/build.mjs --watch' 'tsc --noEmit --watch --preserveWatchOutput' 'web-ext run --source-dir build --start-url https://www.mozilla.org/en-US/'"
+
+[tasks.typecheck]
+description = "Check TypeScript types"
+depends = ["install"]
+run = "npm exec -- tsc --noEmit"
+
+[tasks.lint]
+description = "Check types, ESLint, Prettier, and Mozilla extension rules"
+depends = ["compile", "typecheck"]
+run = ["npm exec -- eslint . --max-warnings 0", "npm exec -- prettier . --check", "web-ext lint --source-dir build --warnings-as-errors"]
+
+[tasks.format]
+description = "Format source and configuration with Prettier"
+depends = ["install"]
+run = "npm exec -- prettier . --write"
+
+[tasks.build]
+description = "Validate and package the extension into dist/"
+depends = ["lint"]
+run = "web-ext build --source-dir build --artifacts-dir dist --overwrite-dest"
+
+[tasks.test]
+description = "Test OAuth protocol and background isolation with mocks"
+depends = ["install"]
+run = "node --test tests/*.test.mjs"
+
+[tasks."test:firefox"]
+description = "Verify synthetic loopback interception in a temporary headless Firefox profile"
+depends = ["compile"]
+run = "node scripts/firefox-smoke.mjs"

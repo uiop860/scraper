@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Scraper account</title>
+    <link rel="stylesheet" href="settings.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Scraper account</h1>
+      <p>
+        This experimental sign-in uses your eligible ChatGPT plan. Credentials
+        are temporary: browser or background restarts require signing in again.
+      </p>
+      <p id="status" role="status" aria-live="polite">Loading…</p>
+      <label for="accounts">Account</label
+      ><select id="accounts">
+        <option value="">Add a ChatGPT account</option>
+      </select>
+      <div>
+        <button id="login">Continue with ChatGPT</button
+        ><button id="cancel">Cancel sign-in</button
+        ><button id="logout">Sign out</button>
+      </div>
+      <h2>Check model access</h2>
+      <p>
+        This sends a fixed greeting to OpenAI and uses your account's allowance.
+        No webpage data is sent.
+      </p>
+      <button id="models">Load models</button><label for="model">Model</label
+      ><select id="model"></select
+      ><button id="test">Send test greeting</button>
+      <pre id="output" aria-live="polite"></pre>
+      <p>
+        <a
+          href="https://chatgpt.com/settings/usage"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Manage ChatGPT usage and app access</a
+        >
+      </p>
+    </main>
+    <script src="settings.js"></script>
+  </body>
+</html>

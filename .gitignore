@@ -1,0 +1,6 @@
+/dist/
+/build/
+/node_modules/
+/.mise.local.toml
+/.mise/
+.DS_Store

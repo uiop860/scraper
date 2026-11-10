@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "Scraper",
+  "version": "0.1.0",
+  "description": "Scraper with experimental browser-only ChatGPT account sign-in.",
+  "icons": {
+    "48": "icons/scraper.svg",
+    "96": "icons/scraper.svg"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "scraper@example.com",
+      "strict_min_version": "142.0",
+      "data_collection_permissions": {
+        "required": ["authenticationInfo"]
+      }
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.mozilla.org/*"],
+      "js": ["content.js"]
+    }
+  ],
+  "permissions": ["storage", "declarativeNetRequestWithHostAccess"],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "https://auth.openai.com/*",
+    "https://api.openai.com/*"
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "options_ui": {
+    "page": "settings.html",
+    "open_in_tab": true
+  },
+  "action": {
+    "default_title": "Scraper account"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["callback.html"],
+      "matches": ["http://127.0.0.1/*", "https://auth.openai.com/*"]
+    }
+  ]
+}
