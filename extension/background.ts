@@ -1,3 +1,4 @@
+import { Authentication } from "./auth/lifecycle";
 import {
   AuthError,
   REDIRECT,
@@ -9,7 +10,6 @@ import {
   record,
   type Attempt,
   type Registration,
-  type Tokens,
 } from "./auth/protocol";
 import {
   identity,
@@ -28,13 +28,11 @@ interface Pending extends Attempt {
 }
 let pending: Pending | undefined;
 let starting: Promise<void> | undefined;
-let session: { registration: Registration; tokens: Tokens } | undefined;
-let refreshing: Promise<Tokens> | undefined;
-let lifetime = new AbortController();
-let notice =
-  "Temporary credentials only. Background or browser restart requires sign-in again.";
+const auth = new Authentication();
+let notice = "";
 let catalog: { id: string; name: string }[] = [];
 let requesting = false;
+let resetting: Promise<void> | undefined;
 // Event pages can restart while session rules survive. Remove stale interception first.
 const ready = browser.declarativeNetRequest.updateSessionRules({
   removeRuleIds: [RULE_ID],
@@ -74,9 +72,13 @@ async function startLogin(clientId?: string) {
   pending = p;
   try {
     const saved = await browser.storage.local.get(["hostId", "registrations"]);
-    const registrations = Array.isArray(saved.registrations)
-      ? saved.registrations.filter(validRegistration)
-      : [];
+    const active = (await auth.status()).account;
+    const registrations = [
+      ...(active ? [active] : []),
+      ...(Array.isArray(saved.registrations)
+        ? saved.registrations.filter(validRegistration)
+        : []),
+    ];
     if (clientId) {
       p.registration = registrations.find((r) => r.clientId === clientId);
       if (!p.registration)
@@ -160,91 +162,33 @@ async function completeLogin(
     );
     p.controller.signal.throwIfAborted();
     const registration = { clientId: result.clientId, ...verified };
-    const saved = await browser.storage.local.get("registrations");
-    const registrations = Array.isArray(saved.registrations)
-      ? saved.registrations.filter(validRegistration)
-      : [];
-    await browser.storage.local.set({
-      registrations: [
-        ...registrations.filter((r) => r.clientId !== registration.clientId),
-        registration,
-      ],
-    });
-    p.controller.signal.throwIfAborted();
-    lifetime.abort();
-    lifetime = new AbortController();
-    refreshing = undefined;
-    session = { registration, tokens };
+    await auth.accept(registration, tokens, p.controller.signal);
     catalog = [];
     notice = tokens.scopes.includes("chatgpt.tokens.use.direct")
-      ? "Signed in. Credentials are temporary."
+      ? "Signed in. Sign-in is saved and protected by your PIN."
       : "Signed in, but ChatGPT plan access was not granted.";
     return { ok: true, message: notice };
   } finally {
     await cleanup(p);
   }
 }
-async function credentials(): Promise<Tokens> {
-  const current = session;
-  if (!current) throw new AuthError("Sign in first.");
-  if (!current.tokens.scopes.includes("chatgpt.tokens.use.direct"))
-    throw new AuthError(
-      "Authorize ChatGPT plan access before making AI requests.",
-    );
-  if (current.tokens.expiresAt > Date.now() + 60_000) return current.tokens;
-  if (refreshing) return refreshing;
-  const signal = lifetime.signal;
-  const work = (async () => {
-    if (!current.tokens.refreshToken)
-      throw new AuthError("Credentials expired. Sign in again.");
-    const tokens = await tokenRequest(
-      {
-        grant_type: "refresh_token",
-        client_id: current.registration.clientId,
-        refresh_token: current.tokens.refreshToken,
-      },
-      signal,
-      current.tokens,
-    );
-    if (tokens.idToken)
-      await identity(
-        tokens.idToken,
-        current.registration.clientId,
-        signal,
-        undefined,
-        current.registration.subject,
-      );
-    signal.throwIfAborted();
-    if (session !== current)
-      throw new AuthError("Account changed. Retry your request.");
-    current.tokens = tokens;
-    if (!tokens.scopes.includes("chatgpt.tokens.use.direct"))
-      throw new AuthError("ChatGPT plan access is no longer granted.");
-    return tokens;
-  })();
-  refreshing = work;
-  try {
-    return await work;
-  } finally {
-    if (refreshing === work) refreshing = undefined;
-  }
-}
 async function signOut() {
-  lifetime.abort();
-  lifetime = new AbortController();
-  refreshing = undefined;
-  const old = session;
-  session = undefined;
+  // Invalidate background work immediately; cleanup completes before revocation.
+  const clearing = auth.clear();
   catalog = [];
-  await cancelLogin();
-  notice = "Signed out locally.";
-  if (old?.tokens.refreshToken) {
+  const [old] = await Promise.all([clearing, cancelLogin()]);
+  // A login cancelled during initialization may have written its host ID after
+  // the first clear. Wait for initialization and remove that metadata as well.
+  await browser.storage.local.remove(["hostId", "registrations"]);
+  notice =
+    "All local authentication data was removed. If sign-in was locked, disconnect Scraper in ChatGPT Settings to revoke it remotely.";
+  if (old?.refreshToken) {
     try {
       await request("https://auth.openai.com/api/accounts/oauth/revoke", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
-          token: old.tokens.refreshToken,
+          token: old.refreshToken,
           token_type_hint: "refresh_token",
           client_id: old.registration.clientId,
         }),
@@ -257,14 +201,20 @@ async function signOut() {
   }
 }
 async function handle(message: unknown, sender: browser.runtime.MessageSender) {
-  if (sender.id !== browser.runtime.id || !record(message)) return;
+  if (
+    sender.id !== browser.runtime.id ||
+    sender.tab?.incognito ||
+    !record(message)
+  )
+    return;
   const settings = browser.runtime.getURL("settings.html");
   const callback = browser.runtime.getURL("callback.html");
   try {
     if (
       sender.url === callback &&
       message.type === "callback" &&
-      typeof message.url === "string"
+      typeof message.url === "string" &&
+      Object.keys(message).every((key) => key === "type" || key === "url")
     ) {
       return await completeLogin(message.url, sender);
     }
@@ -273,21 +223,68 @@ async function handle(message: unknown, sender: browser.runtime.MessageSender) {
       (sender.frameId !== undefined && sender.frameId !== 0)
     )
       return;
+    const fields: Record<string, string[]> = {
+      status: ["type"],
+      login: ["type", "clientId"],
+      unlock: ["type", "pin"],
+      cancel: ["type"],
+      logout: ["type"],
+      models: ["type"],
+      test: ["type", "model"],
+    };
+    if (
+      typeof message.type !== "string" ||
+      !Object.hasOwn(fields, message.type) ||
+      Object.keys(message).some(
+        (key) => !fields[message.type as string].includes(key),
+      )
+    )
+      throw new AuthError("Invalid request.");
     if (message.type === "status") {
+      const state = await auth.status();
       const saved = await browser.storage.local.get("registrations");
       return {
         ok: true,
-        signedIn: !!session,
-        account: session?.registration,
+        ...state,
         pending: !!pending,
-        notice,
-        registrations: Array.isArray(saved.registrations)
-          ? saved.registrations.filter(validRegistration)
-          : [],
+        notice:
+          notice ||
+          (state.locked
+            ? "Enter your PIN to unlock saved sign-in."
+            : state.configured
+              ? "Unlocked for this Firefox session."
+              : "Set a four-digit PIN to protect saved sign-in."),
+        registrations: [
+          ...(state.account ? [state.account] : []),
+          ...(Array.isArray(saved.registrations)
+            ? saved.registrations
+                .filter(validRegistration)
+                .filter((r) => r.clientId !== state.account?.clientId)
+            : []),
+        ],
       };
+    }
+    if (resetting && message.type !== "logout")
+      throw new AuthError("Local sign-in reset is in progress.");
+    if (message.type === "unlock") {
+      if (typeof message.pin !== "string")
+        throw new AuthError("Enter exactly four digits.");
+      await auth.unlock(message.pin);
+      notice = "Unlocked for this Firefox session.";
+      return { ok: true };
     }
     if (message.type === "login") {
       await ready;
+      const state = await auth.status();
+      if (!state.configured || state.locked)
+        throw new AuthError("Set or enter your PIN first.");
+      if (
+        message.clientId !== undefined &&
+        (typeof message.clientId !== "string" ||
+          !message.clientId ||
+          message.clientId.length > 1024)
+      )
+        throw new AuthError("Invalid account selection.");
       if (starting || pending)
         throw new AuthError("A sign-in is already in progress.");
       const work = startLogin(
@@ -302,16 +299,35 @@ async function handle(message: unknown, sender: browser.runtime.MessageSender) {
     } else if (message.type === "cancel") {
       await cancelLogin();
       notice = "Sign-in cancelled.";
-    } else if (message.type === "logout") await signOut();
-    else if (message.type === "models" || message.type === "test") {
-      if (requesting) throw new AuthError("An AI request is already running.");
-      requesting = true;
-      const signal = lifetime.signal;
+    } else if (message.type === "logout") {
+      resetting ??= signOut().finally(() => {
+        resetting = undefined;
+      });
+      await resetting;
+    } else if (message.type === "models" || message.type === "test") {
+      if (message.type === "test" && requesting)
+        throw new AuthError("An AI request is already running.");
+      if (
+        message.type === "test" &&
+        (typeof message.model !== "string" ||
+          !catalog.some((m) => m.id === message.model))
+      )
+        throw new AuthError("Load and select an available model first.");
+      if (message.type === "test") requesting = true;
+      const signal = auth.signal;
       try {
-        const tokens = await credentials();
+        const tokens = await auth.credentials();
         signal.throwIfAborted();
         if (message.type === "models") {
-          const choices = await models(tokens, signal);
+          let choices;
+          try {
+            choices = await models(tokens, signal);
+          } catch (error) {
+            if (!(error instanceof AuthError) || error.status !== 401)
+              throw error;
+            auth.invalidateAccess(tokens);
+            choices = await models(await auth.credentials(), signal);
+          }
           signal.throwIfAborted();
           catalog = choices;
           return { ok: true, models: choices };
@@ -321,11 +337,17 @@ async function handle(message: unknown, sender: browser.runtime.MessageSender) {
           !catalog.some((m) => m.id === message.model)
         )
           throw new AuthError("Load and select an available model first.");
-        const text = await testModel(tokens, message.model, signal);
+        const text = await testModel(tokens, message.model, signal).catch(
+          (error: unknown) => {
+            if (error instanceof AuthError && error.status === 401)
+              auth.invalidateAccess(tokens);
+            throw error;
+          },
+        );
         signal.throwIfAborted();
         return { ok: true, text };
       } finally {
-        requesting = false;
+        if (message.type === "test") requesting = false;
       }
     } else throw new AuthError("Unknown request.");
     return { ok: true };

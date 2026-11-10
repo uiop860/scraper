@@ -45,7 +45,7 @@ ESLint checks JavaScript tooling and TypeScript extension code with recommended 
 ## Source
 
 - `extension/content.ts`: content script entry point; import additional TypeScript modules here.
-- `extension/background.ts` and `extension/auth/`: temporary OAuth credentials and authenticated requests.
+- `extension/background.ts` and `extension/auth/`: PIN-encrypted OAuth storage, refresh lifecycle, and authenticated requests.
 - `extension/settings.html` and `extension/settings.ts`: account and model-test UI.
 - `extension/manifest.json`: metadata, permissions, and script URL matches. References compiled `.js` files.
 - `extension/icons/`: static assets copied into the extension.
@@ -64,14 +64,17 @@ Builds are unsigned. Distribution through standard Firefox installations require
 
 Click the extension's toolbar button to open account settings. The browser-only
 prototype uses OpenAI's documented open-source OAuth flow and intercepts its
-`127.0.0.1` callback inside Firefox; no local server is needed. Credentials remain
-in background memory and require reauthorization after background/browser restart.
+`127.0.0.1` callback inside Firefox; no local server is needed. Set a four-digit PIN on first use. Refresh credentials are saved encrypted in
+IndexedDB; enter the PIN once per Firefox session to restore sign-in without
+repeating OAuth. Access tokens and the unlocked key stay in memory/session storage.
+A short PIN offers limited resistance to offline guessing. Private browsing is
+disabled; logout removes all local authentication state.
 The settings page can discover account models and send a fixed test greeting.
 Live login and an upstream greeting response have been reported by the user;
 rendering through the updated SDK path still needs a real-account recheck.
 
 Run `mise run test` for mocked authentication tests and `mise run test:firefox`
-for a synthetic redirect check in a temporary Firefox profile. See
+for synthetic redirect and encrypted-storage checks in a temporary Firefox profile. See
 [authentication notes](docs/authentication.md) for security boundaries, limitations,
 and manual verification steps. The starter's earlier no-data declaration has been
 replaced with `authenticationInfo`; no scraped page data is sent by this prototype.

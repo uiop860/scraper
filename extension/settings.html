@@ -10,10 +10,37 @@
     <main>
       <h1>Scraper account</h1>
       <p>
-        This experimental sign-in uses your eligible ChatGPT plan. Credentials
-        are temporary: browser or background restarts require signing in again.
+        This experimental sign-in uses your eligible ChatGPT plan. Your sign-in
+        is saved encrypted. Unlock with your four-digit PIN once per Firefox
+        session. A short PIN provides limited protection against guessing.
       </p>
       <p id="status" role="status" aria-live="polite">Loading…</p>
+      <form id="unlock-form">
+        <p id="pin-help">Set or enter your four-digit PIN.</p>
+        <label for="pin">PIN</label>
+        <input
+          id="pin"
+          type="password"
+          inputmode="numeric"
+          pattern="[0-9]{4}"
+          minlength="4"
+          maxlength="4"
+          autocomplete="off"
+          required
+        />
+        <label id="confirm-label" for="pin-confirm">Confirm new PIN</label>
+        <input
+          id="pin-confirm"
+          type="password"
+          inputmode="numeric"
+          pattern="[0-9]{4}"
+          maxlength="4"
+          autocomplete="off"
+        />
+        <button id="unlock" type="submit">Unlock</button>
+      </form>
+      <p>Forgotten PIN? Reset local sign-in below, then sign in again.</p>
+      <button id="reset" type="button">Reset local sign-in</button>
       <label for="accounts">Account</label
       ><select id="accounts">
         <option value="">Add a ChatGPT account</option>

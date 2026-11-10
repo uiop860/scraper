@@ -28,9 +28,11 @@ export async function request(
     });
     if (!response.ok) {
       await response.body?.cancel();
-      throw new AuthError(
+      const error = new AuthError(
         `OpenAI request failed (HTTP ${response.status}). Check permissions, account access, or sign in again.`,
       );
+      error.status = response.status;
+      throw error;
     }
     return response;
   } catch (error) {
@@ -72,7 +74,14 @@ export async function tokenRequest(
       body: new URLSearchParams({ ...fields, resource: RESOURCE }),
     },
     signal,
-  );
+  ).catch((error: unknown) => {
+    if (
+      error instanceof AuthError &&
+      (error.status === 400 || error.status === 401)
+    )
+      error.credentialsRejected = true;
+    throw error;
+  });
   return parseTokens(await response.json(), previous);
 }
 export async function models(tokens: Tokens, signal: AbortSignal) {

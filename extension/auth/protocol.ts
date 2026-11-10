@@ -7,7 +7,10 @@ export const RULE_ID = 1;
 const SCOPES =
   "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct";
 
-export class AuthError extends Error {}
+export class AuthError extends Error {
+  status?: number;
+  credentialsRejected = false;
+}
 export const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -147,9 +150,11 @@ export async function verifyIdentity(
       email: typeof payload.email === "string" ? payload.email : undefined,
     };
   } catch {
-    throw new AuthError(
+    const error = new AuthError(
       "OpenAI identity verification failed. Start sign-in again.",
     );
+    error.credentialsRejected = true;
+    throw error;
   }
 }
 export interface Tokens {
@@ -174,7 +179,7 @@ export function parseTokens(value: unknown, previous?: Tokens): Tokens {
   return {
     accessToken: value.access_token,
     refreshToken:
-      typeof value.refresh_token === "string"
+      typeof value.refresh_token === "string" && value.refresh_token
         ? value.refresh_token
         : previous?.refreshToken,
     idToken: typeof value.id_token === "string" ? value.id_token : undefined,

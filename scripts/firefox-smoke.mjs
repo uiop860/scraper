@@ -21,6 +21,7 @@ try {
     stdin: {
       contents: `
       import { callbackRule, parseCallback, REDIRECT } from "./extension/auth/protocol";
+      import { CredentialStore, database, importSessionKey } from "./extension/auth/storage";
       import { testModel } from "./extension/auth/client";
       let tabId;
       const attempt = { state: "synthetic", nonce: "test", verifier: "test" };
@@ -43,6 +44,33 @@ try {
         } catch { dump("SCRAPER_FIREFOX_FAIL\\n"); return { ok: false }; }
       });
       (async () => {
+        const store = new CredentialStore();
+        await store.unlock("1234");
+        await store.save({registration: {clientId: "synthetic", subject: "synthetic"}, refreshToken: "synthetic", scopes: []});
+        const persisted = await database();
+        if (persisted.key || persisted.iv.length !== 12) throw new Error("Vault format mismatch");
+        const resumed = new CredentialStore();
+        if (!(await resumed.status()).credential) throw new Error("Session restoration failed");
+        // Exercise actual CryptoKey structured cloning independently. The PIN
+        // vault deliberately never persists this key.
+        const key = await importSessionKey(Array.from(new Uint8Array(32)));
+        const cloned = structuredClone(key);
+        if (cloned.extractable) throw new Error("Key became extractable");
+        await database({...persisted, probeKey: cloned});
+        const roundTrip = (await database()).probeKey;
+        if (!roundTrip || roundTrip.extractable) throw new Error("IndexedDB key cloning failed");
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encrypted = await crypto.subtle.encrypt({name: "AES-GCM", iv}, key, new Uint8Array([42]));
+        const decrypted = await crypto.subtle.decrypt({name: "AES-GCM", iv}, roundTrip, encrypted);
+        if (new Uint8Array(decrypted)[0] !== 42) throw new Error("Persisted key was unusable");
+        await database(persisted);
+        await browser.storage.session.remove("scraperAuth");
+        const restarted = new CredentialStore();
+        if (!(await restarted.status()).locked) throw new Error("Session did not lock");
+        await restarted.unlock("1234");
+        if ((await restarted.status()).credential.refreshToken !== "synthetic") throw new Error("PIN restoration failed");
+        await restarted.clear();
+        if (await database() !== undefined) throw new Error("Vault cleanup failed");
         const tab = await browser.tabs.create({ url: "about:blank" });
         tabId = tab.id;
         await browser.declarativeNetRequest.updateSessionRules({ addRules: [callbackRule(tabId, browser.runtime.getURL("callback.html"))] });
@@ -112,7 +140,7 @@ try {
       "Firefox synthetic callback was not confirmed. Run the manual checks in docs/authentication.md.",
     );
   console.log(
-    "Firefox intercepted the synthetic loopback callback, validated its state in the expected tab, and removed the rule. The SDK also decoded a synthetic response without a Content-Type header. No localhost server was used.",
+    "Firefox intercepted the synthetic loopback callback, validated its state in the expected tab, and removed the rule. The SDK also decoded a synthetic response without a Content-Type header. PIN encryption, IndexedDB reopening, session restoration, CryptoKey cloning, and cleanup also passed. No localhost server was used.",
   );
 } finally {
   await rm(directory, { recursive: true, force: true });

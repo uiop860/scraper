@@ -1,3 +1,4 @@
+import { IDBFactory } from "fake-indexeddb";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { generateKeyPair, exportJWK, SignJWT } from "jose";
@@ -16,6 +17,9 @@ async function harness(initial = {}) {
   let authorize, tokenHook, ruleHook;
   let expiresIn = 3600;
   const originalBrowser = globalThis.browser;
+  const originalDB = globalThis.indexedDB;
+  globalThis.indexedDB = new IDBFactory();
+  const sessionData = {};
   const originalFetch = globalThis.fetch;
   globalThis.browser = {
     runtime: {
@@ -35,6 +39,17 @@ async function harness(initial = {}) {
       },
     },
     storage: {
+      session: {
+        async get(key) {
+          return { [key]: structuredClone(sessionData[key]) };
+        },
+        async set(value) {
+          Object.assign(sessionData, structuredClone(value));
+        },
+        async remove(key) {
+          delete sessionData[key];
+        },
+      },
       local: {
         async get(keys) {
           return Object.fromEntries(
@@ -43,6 +58,9 @@ async function harness(initial = {}) {
         },
         async set(value) {
           Object.assign(stored, value);
+        },
+        async remove(keys) {
+          for (const key of keys) delete stored[key];
         },
       },
     },
@@ -124,7 +142,13 @@ async function harness(initial = {}) {
         tab: { id: tabId },
       },
     );
+  assert.equal((await send({ type: "unlock", pin: "1234" })).ok, true);
   return {
+    async restart(browserRestart = false) {
+      if (browserRestart)
+        for (const key of Object.keys(sessionData)) delete sessionData[key];
+      await import(`${source}#${crypto.randomUUID()}`);
+    },
     stored,
     rules,
     updates,
@@ -142,6 +166,7 @@ async function harness(initial = {}) {
     },
     async close() {
       await send({ type: "logout" });
+      globalThis.indexedDB = originalDB;
       globalThis.browser = originalBrowser;
       globalThis.fetch = originalFetch;
     },
@@ -309,7 +334,7 @@ test("expired credentials rotate and subsequent refresh uses the latest token", 
       h.send({ type: "models" }),
     ]);
     assert.equal(first.ok, true);
-    assert.equal(concurrent.ok, false);
+    assert.equal(concurrent.ok, true);
     assert.equal(count, 1);
     assert.equal((await h.send({ type: "models" })).ok, true);
     assert.equal(count, 1);
@@ -348,6 +373,72 @@ test("cancel during rule installation waits for installation and removes the rul
     });
     assert.equal((await h.send({ type: "login" })).ok, false);
     assert.equal(h.rules.size, 0);
+  } finally {
+    await h.close();
+  }
+});
+
+test("browser restart requires PIN, restores saved sign-in and refreshes only on demand", async () => {
+  const h = await harness();
+  try {
+    await h.send({ type: "login" });
+    assert.equal((await h.complete()).ok, true);
+    const before = h.fetches.length;
+    await h.restart();
+    assert.equal((await h.send({ type: "status" })).signedIn, true);
+    assert.equal((await h.send({ type: "models" })).ok, true);
+    assert.equal(h.fetches.length, before + 1); // cached access token survives event page restart
+    await h.restart(true);
+    const locked = await h.send({ type: "status" });
+    assert.equal(locked.locked, true);
+    assert.equal(locked.signedIn, false);
+    assert.equal((await h.send({ type: "models" })).ok, false);
+    assert.equal((await h.send({ type: "unlock", pin: "1234" })).ok, true);
+    assert.equal((await h.send({ type: "status" })).signedIn, true);
+    assert.equal(h.fetches.length, before + 1); // unlocking does not refresh
+    h.setTokenHook(() =>
+      Response.json({
+        access_token: "RESTORED",
+        refresh_token: "ROTATED",
+        token_type: "Bearer",
+        expires_in: 3600,
+      }),
+    );
+    assert.equal((await h.send({ type: "models" })).ok, true);
+    await h.send({ type: "logout" });
+    assert.deepEqual(h.stored, {});
+    await h.restart(true);
+    const cleared = await h.send({ type: "status" });
+    assert.equal(cleared.configured, false);
+    assert.equal(cleared.signedIn, false);
+  } finally {
+    await h.close();
+  }
+});
+
+test("locked reset and strict message/private browsing boundaries", async () => {
+  const h = await harness();
+  try {
+    await h.restart(true);
+    assert.equal(
+      (await h.send({ type: "unlock", pin: "1234", url: "https://evil.test" }))
+        .ok,
+      false,
+    );
+    assert.equal(
+      await h.send(
+        { type: "unlock", pin: "1234" },
+        {
+          id: "scraper",
+          url: "moz-extension://scraper/settings.html",
+          tab: { id: 1, incognito: true },
+        },
+      ),
+      undefined,
+    );
+    assert.equal((await h.send({ type: "login", clientId: 42 })).ok, false);
+    assert.equal((await h.send({ type: "logout" })).ok, true);
+    assert.equal((await h.send({ type: "status" })).configured, false);
   } finally {
     await h.close();
   }

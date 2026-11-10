@@ -43,5 +43,6 @@
       "resources": ["callback.html"],
       "matches": ["http://127.0.0.1/*", "https://auth.openai.com/*"]
     }
-  ]
+  ],
+  "incognito": "not_allowed"
 }
