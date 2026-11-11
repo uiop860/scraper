@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import {
+  AuiIf,
   AssistantRuntimeProvider,
   ComposerPrimitive,
   MessagePrimitive,
@@ -12,8 +13,8 @@ function Message() {
   return (
     <MessagePrimitive.Root className="chat-message">
       <span className="speaker">
-        <MessagePrimitive.If user>You</MessagePrimitive.If>
-        <MessagePrimitive.If assistant>Scraper</MessagePrimitive.If>
+        <AuiIf condition={(s) => s.message.role === "user"}>You</AuiIf>
+        <AuiIf condition={(s) => s.message.role === "assistant"}>Scraper</AuiIf>
       </span>
       <MessagePrimitive.Content />
     </MessagePrimitive.Root>
@@ -62,7 +63,7 @@ export function Chat({
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadPrimitive.Root className="chat-thread">
         <ThreadPrimitive.Viewport className="chat-viewport">
-          <ThreadPrimitive.Empty>
+          <AuiIf condition={(s) => s.thread.isEmpty}>
             <div className="welcome">
               <h2>What would you like to extract?</h2>
               <p>
@@ -70,10 +71,14 @@ export function Chat({
                 JSON scraper, and test a sample.
               </p>
             </div>
-          </ThreadPrimitive.Empty>
-          <ThreadPrimitive.Messages
-            components={{ UserMessage: Message, AssistantMessage: Message }}
-          />
+          </AuiIf>
+          <ThreadPrimitive.Messages>
+            {({ message }) =>
+              message.role === "user" || message.role === "assistant" ? (
+                <Message />
+              ) : null
+            }
+          </ThreadPrimitive.Messages>
         </ThreadPrimitive.Viewport>
         <ComposerPrimitive.Root
           className="composer"

@@ -7,7 +7,7 @@ import {
   useEffect,
   useRef,
   useState,
-  type FormEvent,
+  type SubmitEvent,
 } from "react";
 import { mountPage } from "../../ui/root";
 import { record } from "../../auth/protocol";
@@ -99,7 +99,7 @@ function Settings() {
       }
     }
   }
-  function unlock(event: FormEvent<HTMLFormElement>) {
+  function unlock(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     if (store.getState().running.has("unlock")) return;
     if (!status.configured && pin !== confirmation) {

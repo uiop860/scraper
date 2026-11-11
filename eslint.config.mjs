@@ -13,6 +13,13 @@ export default defineConfig(
   {
     files: ["**/*.ts", "**/*.tsx"],
     extends: [js.configs.recommended, tseslint.configs.recommended],
-    languageOptions: { globals: { ...globals.browser, browser: "readonly" } },
+    languageOptions: {
+      globals: { ...globals.browser, browser: "readonly" },
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: { "@typescript-eslint/no-deprecated": "error" },
   },
 );
