@@ -7,67 +7,7 @@
     <link rel="stylesheet" href="settings.css" />
   </head>
   <body>
-    <main>
-      <h1>Scraper account</h1>
-      <p>
-        This experimental sign-in uses your eligible ChatGPT plan. Your sign-in
-        is saved encrypted. Unlock with your four-digit PIN once per Firefox
-        session. A short PIN provides limited protection against guessing.
-      </p>
-      <p id="status" role="status" aria-live="polite">Loading…</p>
-      <form id="unlock-form">
-        <p id="pin-help">Set or enter your four-digit PIN.</p>
-        <label for="pin">PIN</label>
-        <input
-          id="pin"
-          type="password"
-          inputmode="numeric"
-          pattern="[0-9]{4}"
-          minlength="4"
-          maxlength="4"
-          autocomplete="off"
-          required
-        />
-        <label id="confirm-label" for="pin-confirm">Confirm new PIN</label>
-        <input
-          id="pin-confirm"
-          type="password"
-          inputmode="numeric"
-          pattern="[0-9]{4}"
-          maxlength="4"
-          autocomplete="off"
-        />
-        <button id="unlock" type="submit">Unlock</button>
-      </form>
-      <p>Forgotten PIN? Reset local sign-in below, then sign in again.</p>
-      <button id="reset" type="button">Reset local sign-in</button>
-      <label for="accounts">Account</label
-      ><select id="accounts">
-        <option value="">Add a ChatGPT account</option>
-      </select>
-      <div>
-        <button id="login">Continue with ChatGPT</button
-        ><button id="cancel">Cancel sign-in</button
-        ><button id="logout">Sign out</button>
-      </div>
-      <h2>Check model access</h2>
-      <p>
-        This sends a fixed greeting to OpenAI and uses your account's allowance.
-        No webpage data is sent.
-      </p>
-      <button id="models">Load models</button><label for="model">Model</label
-      ><select id="model"></select
-      ><button id="test">Send test greeting</button>
-      <pre id="output" aria-live="polite"></pre>
-      <p>
-        <a
-          href="https://chatgpt.com/settings/usage"
-          target="_blank"
-          rel="noopener noreferrer"
-          >Manage ChatGPT usage and app access</a
-        >
-      </p>
-    </main>
+    <div id="root"></div>
     <script src="settings.js"></script>
   </body>
 </html>

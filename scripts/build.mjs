@@ -8,22 +8,23 @@ async function compile() {
     entryPoints: [
       "extension/content.ts",
       "extension/background.ts",
-      "extension/settings.ts",
-      "extension/scraper.ts",
-      "extension/callback.ts",
+      "extension/settings.tsx",
+      "extension/scraper.tsx",
+      "extension/callback.tsx",
     ],
     outdir: "build",
     bundle: true,
     format: "iife",
     platform: "browser",
     target: "firefox142",
+    define: { "process.env.NODE_ENV": '"production"' },
     write: false,
     logLevel: "info",
   });
   await rm("build", { recursive: true, force: true });
   await cp("extension", "build", {
     recursive: true,
-    filter: (source) => !source.endsWith(".ts"),
+    filter: (source) => !/\.tsx?$/.test(source),
   });
   for (const file of result.outputFiles) {
     await writeFile(file.path, file.contents);

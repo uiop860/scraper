@@ -27,7 +27,13 @@
       }
     }
   },
-  "permissions": ["storage", "declarativeNetRequest", "scripting", "activeTab"],
+  "permissions": [
+    "storage",
+    "declarativeNetRequest",
+    "scripting",
+    "activeTab",
+    "tabs"
+  ],
   "host_permissions": [
     "http://127.0.0.1/*",
     "https://auth.openai.com/*",
@@ -47,5 +53,11 @@
     }
   ],
   "incognito": "not_allowed",
-  "optional_host_permissions": ["http://*/*", "https://*/*"]
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "sidebar_action": {
+    "default_title": "Scraper",
+    "default_panel": "scraper.html",
+    "default_icon": "icons/icon-32.png",
+    "open_at_install": false
+  }
 }

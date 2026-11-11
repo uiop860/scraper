@@ -9,7 +9,8 @@ const pair = await generateKeyPair("RS256");
 const jwk = { ...(await exportJWK(pair.publicKey)), kid: "test", alg: "RS256" };
 
 async function harness(initial = {}) {
-  let listener, removed;
+  let listener, removed, clicked;
+  let sidebarOpens = 0;
   const stored = structuredClone(initial);
   const rules = new Map();
   const updates = [];
@@ -23,6 +24,7 @@ async function harness(initial = {}) {
   const originalFetch = globalThis.fetch;
   globalThis.browser = {
     runtime: {
+      onConnect: { addListener() {} },
       id: "scraper",
       getURL: (p) => `moz-extension://scraper/${p}`,
       onMessage: {
@@ -82,7 +84,19 @@ async function harness(initial = {}) {
         },
       },
     },
-    action: { onClicked: { addListener() {} } },
+    action: {
+      onClicked: {
+        addListener(fn) {
+          clicked = fn;
+        },
+      },
+    },
+    sidebarAction: {
+      open() {
+        sidebarOpens++;
+        return Promise.resolve();
+      },
+    },
   };
   globalThis.fetch = async (url, init) => {
     fetches.push({ url, init });
@@ -156,6 +170,10 @@ async function harness(initial = {}) {
     fetches,
     send,
     complete,
+    clickToolbar() {
+      clicked();
+      return sidebarOpens;
+    },
     setExpiry(value) {
       expiresIn = value;
     },
@@ -176,6 +194,7 @@ async function harness(initial = {}) {
 test("background login, model request, isolation, replay protection, and logout", async () => {
   const h = await harness();
   try {
+    assert.equal(h.clickToolbar(), 1);
     assert.equal((await h.send({ type: "login" })).ok, true);
     assert.equal(h.rules.size, 1);
     assert.equal((await h.send({ type: "login" })).ok, false);

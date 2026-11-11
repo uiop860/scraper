@@ -378,8 +378,6 @@ browser.tabs.onRemoved.addListener((tabId) => {
       notice = "Could not clean up sign-in. Reload the extension.";
     });
 });
-browser.action.onClicked.addListener((tab) => {
-  void browser.tabs.create({
-    url: browser.runtime.getURL(`scraper.html?tab=${tab.id ?? ""}`),
-  });
+browser.action.onClicked.addListener(() => {
+  void browser.sidebarAction.open();
 });

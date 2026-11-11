@@ -4,63 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width" />
     <title>Scraper</title>
-    <link rel="stylesheet" href="settings.css" />
     <link rel="stylesheet" href="scraper.css" />
   </head>
   <body>
-    <main>
-      <h1>Scraper</h1>
-      <p>
-        <a href="settings.html">Account settings</a> · JSON scraping runs
-        locally and requires no sign-in.
-      </p>
-      <p id="source">Loading source tab…</p>
-      <p>
-        Only the starting page's exact origin is permitted. Firefox will ask for
-        site access when you run. A separate tab loads pages using your current
-        website session. Keep this page open during the run.
-      </p>
-      <p>
-        Limits: 20 listing pages, 200 items, 220 document visits, one detail
-        level, five minutes. Only next-page links are supported.
-      </p>
-      <fieldset>
-        <legend>Generate a scraper with AI</legend>
-        <p>
-          Sign in and unlock in Account settings, then load models. Generation
-          sends rendered page samples and test results to OpenAI. The agent can
-          inspect pages, test its JSON, and revise it before returning a
-          specification.
-        </p>
-        <button id="load-models">Load models</button>
-        <label for="agent-model">Model</label>
-        <select id="agent-model" disabled></select>
-        <label for="agent-goal">What should be scraped?</label>
-        <textarea
-          id="agent-goal"
-          rows="3"
-          maxlength="4000"
-          placeholder="Extract listing titles, prices and links. Follow next pages and extract descriptions from detail pages."
-        ></textarea>
-        <button id="generate" disabled>Allow site access and generate</button>
-        <pre id="agent-log" aria-live="polite"></pre>
-      </fieldset>
-      <label for="spec">JSON scraping specification</label>
-      <textarea
-        id="spec"
-        rows="22"
-        spellcheck="false"
-        maxlength="64000"
-      ></textarea>
-      <button id="validate">Validate JSON</button>
-      <button id="run" disabled>Allow site access and run</button>
-      <button id="stop" disabled>Cancel</button>
-      <p id="status" role="status" aria-live="polite">
-        Paste a specification and validate it.
-      </p>
-      <button id="export" disabled>Download JSON results</button>
-      <pre id="results"></pre>
-    </main>
+    <div id="root"></div>
     <script src="scraper.js"></script>
   </body>
 </html>

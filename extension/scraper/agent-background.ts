@@ -1,3 +1,4 @@
+import { scraperOwner, watchSidebarDisconnect } from "./owner";
 import type OpenAI from "openai";
 import type { Authentication } from "../auth/lifecycle";
 import { AuthError, record } from "../auth/protocol";
@@ -12,19 +13,19 @@ export function registerScraperAgent(auth: Authentication) {
     pending.get(owner)?.abort();
     pending.delete(owner);
   };
+  watchSidebarDisconnect((owner) => {
+    cancel(owner);
+    catalogs.delete(owner);
+  });
   browser.runtime.onMessage.addListener((message: unknown, sender) => {
+    const owner = scraperOwner(sender);
     if (
-      sender.id !== browser.runtime.id ||
-      sender.url?.split("?")[0] !== browser.runtime.getURL("scraper.html") ||
-      sender.frameId !== 0 ||
-      sender.tab?.id === undefined ||
-      sender.tab.incognito ||
+      owner === undefined ||
       !record(message) ||
       typeof message.type !== "string" ||
       !message.type.startsWith("scraper.agent.")
     )
       return;
-    const owner = sender.tab.id;
     if (message.type === "scraper.agent.cancel") {
       cancel(owner);
       return Promise.resolve({ ok: true });

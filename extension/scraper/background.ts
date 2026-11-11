@@ -1,3 +1,4 @@
+import { scraperOwner, watchSidebarDisconnect } from "./owner";
 import { guardRules, workerKey, type Worker } from "./guard";
 import { navigationUrl } from "./spec";
 
@@ -39,15 +40,15 @@ function enqueue(work: () => Promise<unknown>): Promise<unknown> {
   );
   return result;
 }
+const sidebarConnected = watchSidebarDisconnect((owner) => {
+  void enqueue(async () => {
+    for (const worker of await workers())
+      if (worker.owner === owner) await remove(worker);
+  });
+});
 browser.runtime.onMessage.addListener((message: unknown, sender) => {
-  if (
-    sender.id !== browser.runtime.id ||
-    sender.url?.split("?")[0] !== browser.runtime.getURL("scraper.html") ||
-    sender.frameId !== 0 ||
-    sender.tab?.id === undefined ||
-    sender.tab.incognito
-  )
-    return;
+  const owner = scraperOwner(sender);
+  if (owner === undefined) return;
   if (
     !message ||
     typeof message !== "object" ||
@@ -56,7 +57,6 @@ browser.runtime.onMessage.addListener((message: unknown, sender) => {
     !message.type.startsWith("scraper.worker.")
   )
     return;
-  const owner = sender.tab.id;
   const task = message as Record<string, unknown>;
   return enqueue(async () => {
     if (task.type === "scraper.worker.close") {
@@ -102,9 +102,14 @@ browser.runtime.onMessage.addListener((message: unknown, sender) => {
         addRules: rules,
       });
       // Owner may have closed while we installed the guard.
-      const ui = await browser.tabs.get(owner);
-      if (ui.url?.split("?")[0] !== browser.runtime.getURL("scraper.html"))
-        throw new Error("Scraper UI closed.");
+      if (owner < 0) {
+        if (!sidebarConnected(owner))
+          throw new Error("Scraper sidebar closed.");
+      } else {
+        const ui = await browser.tabs.get(owner);
+        if (ui.url?.split("?")[0] !== browser.runtime.getURL("scraper.html"))
+          throw new Error("Scraper UI closed.");
+      }
       return { ok: true, tab: worker.tab, origin, startUrl: source.url };
     } catch (error) {
       await remove(worker);

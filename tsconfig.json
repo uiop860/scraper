@@ -1,15 +1,17 @@
 {
   "compilerOptions": {
     "target": "ES2022",
+    "jsx": "react-jsx",
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "lib": ["ES2022", "DOM"],
     "types": ["firefox-webext-browser"],
     "strict": true,
+    "skipLibCheck": true,
     "noEmit": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["extension/**/*.ts"]
+  "include": ["extension/**/*.ts", "extension/**/*.tsx"]
 }

@@ -1,6 +1,6 @@
 # Scraper
 
-Firefox Manifest V3 extension for declarative JSON scraping, built with strict TypeScript and esbuild. It extracts rendered listing and detail pages locally, with an optional ChatGPT-powered agent that inspects pages, generates scraping JSON, tests it, and revises it using tool feedback.
+Firefox Manifest V3 extension with a sidebar chat for declarative JSON scraping, built with strict TypeScript and esbuild. It extracts rendered listing and detail pages locally, with an optional ChatGPT-powered agent that inspects pages, generates scraping JSON, tests it, and revises it using tool feedback.
 
 ## Setup
 
@@ -16,7 +16,7 @@ mise manages pinned Node.js and Mozilla `web-ext` versions. Tasks automatically 
 
 ## Development
 
-Edit source under `extension/`. Firefox API types are available through the global `browser` object, with strict TypeScript checking enabled.
+Edit source under `extension/`. The sidebar, account settings, and sign-in callback are React components written in TSX. The chat uses assistant-ui; settings remain a separate options tab. Firefox API types are available through the global `browser` object, with strict TypeScript checking enabled.
 
 `mise run dev` runs the compiler, TypeScript checker, and Firefox together. Changes to TypeScript, the manifest, or static assets rebuild `build/`, and web-ext reloads the extension. Refresh the page to apply content script changes. Type errors appear in the terminal; lint and release builds fail on them. Press Ctrl+C to stop all processes.
 
@@ -58,9 +58,9 @@ ESLint checks JavaScript tooling and TypeScript extension code with recommended 
 ## Source
 
 - `extension/content.ts`: isolated worker content script for rendered DOM extraction.
-- `extension/scraper.ts` and `extension/scraper/`: JSON scraping UI, schema, runtime, and navigation guard.
+- `extension/scraper.tsx` and `extension/scraper/`: JSON scraping UI, schema, runtime, and navigation guard.
 - `extension/background.ts` and `extension/auth/`: PIN-encrypted OAuth storage, refresh lifecycle, and authenticated requests.
-- `extension/settings.html` and `extension/settings.ts`: account and model-test UI.
+- `extension/settings.html` and `extension/settings.tsx`: account and model-test UI.
 - `extension/manifest.json`: metadata, permissions, and script URL matches. References compiled `.js` files.
 - `extension/icons/`: static assets copied into the extension.
 - `scripts/build.mjs`: esbuild compilation and source watcher. Add new script entry points here as needed.
