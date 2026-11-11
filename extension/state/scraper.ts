@@ -1,4 +1,5 @@
 import { createStore } from "zustand/vanilla";
+import type { ThreadMessageLike } from "@assistant-ui/react";
 import type { Result } from "../scraper/runner";
 
 export interface ModelChoice {
@@ -6,37 +7,36 @@ export interface ModelChoice {
   name: string;
 }
 interface ScraperState {
+  messages: ThreadMessageLike[];
+  sourceTab?: number;
   startUrl: string;
   origin: string;
   source: string;
   spec: string;
   validated: string;
-  goal: string;
   models: ModelChoice[];
   model: string;
   busy: "scraping" | "generating" | "models" | null;
   cancelling: boolean;
   status: string;
-  log: string;
   result: Result | undefined;
 }
 
 // One instance per scraper page. Website content is never persisted or shared.
 export function createScraperStore(spec: string) {
   const store = createStore<ScraperState>()(() => ({
+    messages: [],
     startUrl: "",
     origin: "",
     source:
       "Loading source tab. Example selectors must be replaced for your website.",
     spec,
     validated: "",
-    goal: "",
     models: [],
     model: "",
     busy: null,
     cancelling: false,
     status: "Paste a specification and validate it.",
-    log: "",
     result: undefined,
   }));
   return {
@@ -50,7 +50,6 @@ export function createScraperStore(spec: string) {
         busy,
         cancelling: false,
         ...(busy === "scraping" ? { result: undefined } : {}),
-        ...(busy === "generating" ? { log: "" } : {}),
       });
       return true;
     },
@@ -69,7 +68,6 @@ export function scraperControls(state: ScraperState) {
     download: !state.result || busy,
     loadModels: busy,
     model: busy || !state.models.length,
-    goal: busy,
     generate: busy || !state.startUrl || !state.model,
   };
 }

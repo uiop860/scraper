@@ -7,6 +7,7 @@ async function harness() {
   let listener,
     onRemoved,
     onUpdated,
+    onConnect,
     failRule = false,
     failClose = false;
   const session = {};
@@ -18,6 +19,11 @@ async function harness() {
   ]);
   globalThis.browser = {
     runtime: {
+      onConnect: {
+        addListener(fn) {
+          onConnect = fn;
+        },
+      },
       id: "test",
       getURL: (p) => `moz-extension://test/${p}`,
       onMessage: {
@@ -81,7 +87,9 @@ async function harness() {
       },
     },
   };
-  await import(`${module}#${crypto.randomUUID()}`);
+  (
+    await import(`${module}#${crypto.randomUUID()}`)
+  ).registerScraperBackground();
   const sender = {
     id: "test",
     url: tabs.get(1).url,
@@ -89,6 +97,23 @@ async function harness() {
     tab: { id: 1 },
   };
   return {
+    connect(window) {
+      const sender = {
+        id: "test",
+        url: `moz-extension://test/scraper.html?window=${window}`,
+      };
+      let disconnect;
+      onConnect({
+        name: "scraper.sidebar",
+        sender,
+        onDisconnect: {
+          addListener(fn) {
+            disconnect = fn;
+          },
+        },
+      });
+      return { sender, disconnect: () => disconnect() };
+    },
     tabs,
     rules,
     session,
@@ -202,6 +227,41 @@ test("failed tab closure retains the navigation guard and reports failure", asyn
     h.denyClose(false);
     assert.equal((await h.send({ type: "scraper.worker.close" })).ok, true);
     assert.equal(h.rules.size, 0);
+  } finally {
+    h.close();
+  }
+});
+
+test("sidebar workers are isolated by window and cleaned up on disconnect", async () => {
+  const h = await harness();
+  try {
+    const sidebar = h.connect(7);
+    assert.equal(
+      (
+        await h.send(
+          { type: "scraper.worker.open", sourceTab: 2 },
+          sidebar.sender,
+        )
+      ).ok,
+      true,
+    );
+    assert.equal(h.session.scraperWorkers[0].owner, -8);
+    const other = h.connect(8);
+    await h.send({ type: "scraper.worker.close" }, other.sender);
+    assert.equal(h.tabs.has(3), true);
+    sidebar.disconnect();
+    await h.flush();
+    assert.equal(h.tabs.has(3), false);
+    assert.equal(h.rules.size, 0);
+    assert.equal(
+      (
+        await h.send(
+          { type: "scraper.worker.open", sourceTab: 2 },
+          sidebar.sender,
+        )
+      ).ok,
+      false,
+    );
   } finally {
     h.close();
   }

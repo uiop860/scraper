@@ -7,7 +7,7 @@ const { registerScraperAgent } = await import(
 
 test("agent bridge protects credentials, restricts senders and models, replays tool state, and cancels requests", async () => {
   const previous = { browser: globalThis.browser, fetch: globalThis.fetch };
-  let listener, removed, updated, fetchHook;
+  let listener, removed, updated, fetchHook, connected;
   let credentials = 0;
   let sharing = true;
   const authController = new AbortController();
@@ -22,6 +22,11 @@ test("agent bridge protects credentials, restricts senders and models, replays t
       },
     },
     runtime: {
+      onConnect: {
+        addListener(fn) {
+          connected = fn;
+        },
+      },
       id: "test",
       getURL: (p) => `moz-extension://test/${p}`,
       onMessage: {
@@ -83,6 +88,27 @@ test("agent bridge protects credentials, restricts senders and models, replays t
     ])
       assert.equal(send({ type: "scraper.agent.models" }, from), undefined);
     assert.equal(credentials, 0);
+    const sidebar = {
+      id: "test",
+      url: "moz-extension://test/scraper.html?window=7",
+    };
+    let disconnect;
+    connected({
+      name: "scraper.sidebar",
+      sender: sidebar,
+      onDisconnect: {
+        addListener(fn) {
+          disconnect = fn;
+        },
+      },
+    });
+    assert.equal(
+      (await send({ type: "scraper.agent.models" }, sidebar)).ok,
+      true,
+    );
+    disconnect();
+    assert.equal((await send(turn, sidebar)).ok, false);
+
     assert.equal((await send(turn)).ok, false);
     const catalog = await send({ type: "scraper.agent.models" });
     assert.equal(catalog.ok, true);

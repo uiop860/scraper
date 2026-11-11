@@ -84,7 +84,7 @@ export function browserDriver(
     )) {
       await browser.scripting.executeScript({
         target: { tabId: tab, frameIds: [0] },
-        files: ["content.js"],
+        files: ["scraper-worker.js"],
       });
       injectedUrl = current.url;
     }

@@ -1,21 +1,28 @@
 # JSON scraping (version 1)
 
 Open a marketplace search in a regular Firefox tab and click **Scrape this page**.
-Replace the example selectors, click **Validate JSON**, then **Allow site access
+The button opens a sidebar alongside the active page. Open **JSON scraper**, replace the example selectors, click **Validate JSON**, then **Allow site access
 and run**. Firefox requests access to that site. Results appear as JSON and can
 be downloaded, including partial results after cancellation or a failure. No
-sign-in or AI request is involved in manual runs. Account settings are linked from the scraper.
+sign-in or AI request is involved in manual runs. **Settings** opens account settings in a separate tab.
 
 A separate worker tab loads listing and detail pages sequentially. Leave the
-scraper UI open; closing or navigating away from it ends the run and closes its
+sidebar open; closing it ends the run and closes its
 worker. Closing the worker interrupts extraction. Runs do not resume after a
 browser restart. Results are held in the UI's memory; download them before closing.
+
+The sidebar follows the active tab and its URL between runs. During a run, the
+source stays pinned to its starting page; **View agent’s tab** lets you watch
+the worker navigate. Switching sites does not grant access or start AI requests.
+The `tabs` permission lets the sidebar display the active page across site changes;
+reading page content still requires optional site access.
 
 ## Generate JSON with an agent
 
 Sign in and unlock your account in **Account settings**. In the scraper, click
-**Load models**, select a model, describe the data to extract, then click
-**Allow site access and generate**. This sends bounded rendered page samples and
+**Load models**, select a model, describe the data to extract in the chat, then click
+**Send**. Follow-up messages revise the current JSON. The chat uses assistant-ui’s
+React primitives and connects to the existing background agent. This sends bounded rendered page samples and
 extracted test data to OpenAI using your selected model. Firefox requests optional
 website-content and browsing-activity sharing consent alongside site access;
 the background checks consent before each model turn. Authentication tokens
@@ -34,7 +41,7 @@ The agent has three tools:
   Failed extraction, empty results, and required-field diagnostics prevent a pass.
 
 A successful specification appears in the JSON editor, ready to review and run.
-The activity log shows test coverage. If no next-page link is found, pagination
+The conversation shows agent activity and test coverage. If no next-page link is found, pagination
 is explicitly reported as unverified. A sample test does not verify every item or
 page. Generation stops after 12 model turns, 24 tool calls, or five minutes;
 **Cancel** interrupts it and closes the worker. Existing editor contents are
@@ -123,7 +130,7 @@ limits. `dom.ts` handles extraction and bounded MutationObserver waits.
 page-driver interface so it can be tested without Firefox. `browser.ts` implements
 that interface using tabs, bundled script injection and extension messaging.
 `background.ts` inside the scraper directory owns worker lifecycle and navigation
-guards; it does not import authentication code. `extension/scraper.ts` owns the UI.
+guards; it does not import authentication code. `extension/entrypoints/scraper/main.tsx` owns the UI.
 
 Every specification is validated before execution and again inside the content
 script. There is no evaluation of generated code, main-world injection, webpage

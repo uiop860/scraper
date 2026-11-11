@@ -9,7 +9,8 @@ const pair = await generateKeyPair("RS256");
 const jwk = { ...(await exportJWK(pair.publicKey)), kid: "test", alg: "RS256" };
 
 async function harness(initial = {}) {
-  let listener, removed;
+  let listener, removed, clicked;
+  let sidebarOpens = 0;
   const stored = structuredClone(initial);
   const rules = new Map();
   const updates = [];
@@ -23,6 +24,7 @@ async function harness(initial = {}) {
   const originalFetch = globalThis.fetch;
   globalThis.browser = {
     runtime: {
+      onConnect: { addListener() {} },
       id: "scraper",
       getURL: (p) => `moz-extension://scraper/${p}`,
       onMessage: {
@@ -82,7 +84,19 @@ async function harness(initial = {}) {
         },
       },
     },
-    action: { onClicked: { addListener() {} } },
+    action: {
+      onClicked: {
+        addListener(fn) {
+          clicked = fn;
+        },
+      },
+    },
+    sidebarAction: {
+      open() {
+        sidebarOpens++;
+        return Promise.resolve();
+      },
+    },
   };
   globalThis.fetch = async (url, init) => {
     fetches.push({ url, init });
@@ -123,7 +137,7 @@ async function harness(initial = {}) {
       );
     throw new Error("Unexpected fetch");
   };
-  await import(`${source}#${crypto.randomUUID()}`);
+  (await import(`${source}#${crypto.randomUUID()}`)).registerBackground();
   const sender = {
     id: "scraper",
     url: "moz-extension://scraper/settings.html",
@@ -131,7 +145,7 @@ async function harness(initial = {}) {
     frameId: 0,
   };
   const send = (message, from = sender) => listener(message, from);
-  const complete = (params = {}, tabId = 42) =>
+  const complete = (params = {}, tabId = 42, fragment = "") =>
     send(
       {
         type: "callback",
@@ -139,7 +153,7 @@ async function harness(initial = {}) {
       },
       {
         ...sender,
-        url: "moz-extension://scraper/callback.html",
+        url: `moz-extension://scraper/callback.html${fragment}`,
         tab: { id: tabId },
       },
     );
@@ -148,7 +162,7 @@ async function harness(initial = {}) {
     async restart(browserRestart = false) {
       if (browserRestart)
         for (const key of Object.keys(sessionData)) delete sessionData[key];
-      await import(`${source}#${crypto.randomUUID()}`);
+      (await import(`${source}#${crypto.randomUUID()}`)).registerBackground();
     },
     stored,
     rules,
@@ -156,6 +170,10 @@ async function harness(initial = {}) {
     fetches,
     send,
     complete,
+    clickToolbar() {
+      clicked();
+      return sidebarOpens;
+    },
     setExpiry(value) {
       expiresIn = value;
     },
@@ -176,6 +194,7 @@ async function harness(initial = {}) {
 test("background login, model request, isolation, replay protection, and logout", async () => {
   const h = await harness();
   try {
+    assert.equal(h.clickToolbar(), 1);
     assert.equal((await h.send({ type: "login" })).ok, true);
     assert.equal(h.rules.size, 1);
     assert.equal((await h.send({ type: "login" })).ok, false);
@@ -440,6 +459,20 @@ test("locked reset and strict message/private browsing boundaries", async () => 
     assert.equal((await h.send({ type: "login", clientId: 42 })).ok, false);
     assert.equal((await h.send({ type: "logout" })).ok, true);
     assert.equal((await h.send({ type: "status" })).configured, false);
+  } finally {
+    await h.close();
+  }
+});
+
+test("callback sender may retain its original fragment after history replacement", async () => {
+  const h = await harness();
+  try {
+    await h.send({ type: "login" });
+    assert.equal(
+      (await h.complete({}, 42, "#original-callback-fragment")).ok,
+      true,
+    );
+    assert.equal((await h.send({ type: "status" })).signedIn, true);
   } finally {
     await h.close();
   }

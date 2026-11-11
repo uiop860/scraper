@@ -138,7 +138,7 @@ export async function responseTurn(
       const mediaType = response.headers
         .get("content-type")
         ?.split(";")[0]
-        .trim()
+        ?.trim()
         .toLowerCase();
       // Only known media types are shown; never include arbitrary response data.
       const format = !mediaType

@@ -20,12 +20,12 @@ Tasks that need npm dependencies automatically run the `install` dependency when
 
 | Command              | Use                                                               |
 | -------------------- | ----------------------------------------------------------------- |
-| `mise run dev`       | Watch source and assets, check types, and launch Firefox          |
-| `mise run compile`   | Compile TypeScript and copy static assets into `build/`           |
+| `mise run dev`       | Run WXT with React hot reload in Firefox                          |
+| `mise run compile`   | Build Firefox MV3 with WXT into `.output/firefox-mv3/`            |
 | `mise run typecheck` | Run strict TypeScript checking without emitting files             |
 | `mise run lint`      | Compile and check TypeScript, ESLint, Prettier, and Mozilla rules |
 | `mise run format`    | Apply Prettier formatting                                         |
-| `mise run build`     | Run all checks and package the extension into `dist/`             |
+| `mise run build`     | Run all checks and package the extension into `.output/`          |
 
 For commands without a task, use `mise exec -- <command>` so the pinned toolchain
 is used. For example, add a development dependency with
@@ -35,13 +35,19 @@ is used. For example, add a development dependency with
 
 ## Source and validation
 
-Write extension code in `extension/**/*.ts`; the current entry point is
-`extension/content.ts`. Firefox API types are provided by
-`@types/firefox-webext-browser`. Keep manifest script references as compiled `.js`
-paths. Add new script entry points in `scripts/build.mjs` when needed.
+Write extension code in `extension/**/*.ts` and `extension/**/*.tsx`. WXT
+entrypoints live in `extension/entrypoints/`; pages use React through
+`@wxt-dev/module-react`. Use explicit imports (WXT auto-imports are disabled).
+Firefox API types are provided by `@types/firefox-webext-browser`.
+Configure the manifest in `wxt.config.ts`; WXT generates script and page entries.
+The on-demand `scraper-worker.ts` is an unlisted script, injected as
+`scraper-worker.js`; do not register it as an automatic content script.
+Keep browser API initialization inside entrypoint main functions so WXT can
+inspect entrypoints during builds without running extension code.
 
-Edit source files rather than generated output. `build/`, `dist/`, and
-`node_modules/` are generated and must remain untracked.
+Edit source files rather than generated output. `.wxt/`, `.output/`, and
+`node_modules/` are generated and must remain untracked. Static assets belong in
+`public/`. esbuild is used only by tests and Firefox smoke harnesses.
 
 Use ESLint for code rules and Prettier for formatting. Run `mise run lint` after
 code or configuration changes; run `mise run build` when changing compilation,

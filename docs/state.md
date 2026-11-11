@@ -1,19 +1,18 @@
 # Application state
 
 The scraper and settings pages use **Zustand's vanilla store** (`zustand/vanilla`),
-with a separate instance for each page. DOM subscriptions render state changes;
-event handlers update state. No React runtime is required.
+with a separate instance for each page. React pages subscribe with `useStore`; event handlers update state. Stores are
+created once per mounted page, preserving the window-scoped sidebar lifecycle.
 
 - `extension/state/scraper.ts` owns source metadata, the editor, validation,
-  model selection, progress, logs, results, and operation status. Derived controls
+  model selection, progress, conversation messages, results, and operation status. Derived controls
   prevent overlapping model loading, scraping, and generation. Editing a spec
   invalidates its approval. Abort controllers stay in the page's lifecycle code.
 - `extension/state/settings.ts` owns the public account snapshot, models, output,
-  and pending UI actions. Status responses are projected onto explicit public
+  and pending UI actions. PIN inputs stay in component state. Status responses are projected onto explicit public
   fields. PINs, tokens, and encryption keys never enter these stores.
 - Background operations remain authoritative. Settings refreshes the existing
-  restricted `status` message every two seconds and after actions, in request
-  order. The scraper uses the existing worker and agent message handlers.
+  restricted `status` message every two seconds and after actions, ignoring stale replies. The scraper uses the existing worker and agent message handlers.
   Importing a store into another context does **not** share its memory.
 
 These stores are intentionally in memory. Scraped content, prompts, and logs
@@ -24,9 +23,9 @@ Subscriptions and timers are released on page shutdown.
 
 ## Why this choice
 
-There is no universal best extension store. For this plain TypeScript app,
+There is no universal best extension store. For this TypeScript app,
 [Zustand's vanilla API](https://zustand.docs.pmnd.rs/apis/create-store) supplies
-small, typed stores and subscriptions without changing the UI framework.
+small, typed stores with React subscriptions through `useStore`.
 [webext-redux](https://github.com/tshaddix/webext-redux) adds a Redux background
 store and messaging proxies, while
 [webext-zustand](https://github.com/sinanbekar/webext-zustand) provides a similar
@@ -39,5 +38,5 @@ preferences are added later, use browser storage and
 or a deliberately scoped background API. Do not persist the whole UI store.
 
 Run `mise run test` for state transitions, public account projection, operation
-exclusion, and a DOM integration test covering validation, permission gestures,
+exclusion, and React integration tests covering validation, permission gestures,
 and cancellation before worker creation, alongside the existing suite.

@@ -40,7 +40,7 @@ export function createSettingsStore() {
     signedIn: false,
     pending: false,
     registrations: [],
-    notice: "",
+    notice: "Loading…",
     output: "",
     models: [],
     model: "",

@@ -133,7 +133,7 @@ the installed extension with the same add-on identity/origin. Schema version 1 a
 a stable database name preserve records; unknown formats fail closed with reset
 available. Removing/reinstalling, changing identity, clearing site/profile data,
 quota failures, disk corruption, and temporary add-on profiles can lose data.
-The dev task now uses an ignored `.firefox-profile/` with web-ext's
+The WXT dev task uses an ignored `.firefox-profile/` with its web-ext runner's
 `--keep-profile-changes` and both `extensions.webextensions.keepStorageOnUninstall`
 and `extensions.webextensions.keepUuidOnUninstall` preferences enabled. This
 preserves authentication storage and its origin across dev shutdown/relaunch.

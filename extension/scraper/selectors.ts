@@ -54,7 +54,7 @@ export function queryElements(
       observe?.(scope);
       if (parts[i] === ":scope" && scope.nodeType === 1)
         nodes.push(scope as Element);
-      else nodes.push(...scope.querySelectorAll(parts[i]));
+      else nodes.push(...scope.querySelectorAll(parts[i]!));
     }
     if (i === parts.length - 1) return [...new Set(nodes)];
     if (nodes.length > 200)
@@ -70,7 +70,7 @@ export function shadowContexts(doc: Document) {
   ];
   let scanned = 0;
   for (let i = 0; i < contexts.length && contexts.length <= 40; i++) {
-    const { root, prefix } = contexts[i];
+    const { root, prefix } = contexts[i]!;
     for (const node of root.querySelectorAll("*")) {
       if (++scanned > 10_000 || contexts.length > 40) return contexts.slice(1);
       if (!node.shadowRoot) continue;
