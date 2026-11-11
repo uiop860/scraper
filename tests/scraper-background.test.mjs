@@ -81,7 +81,9 @@ async function harness() {
       },
     },
   };
-  await import(`${module}#${crypto.randomUUID()}`);
+  (
+    await import(`${module}#${crypto.randomUUID()}`)
+  ).registerScraperBackground();
   const sender = {
     id: "test",
     url: tabs.get(1).url,

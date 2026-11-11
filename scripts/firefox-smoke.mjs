@@ -8,7 +8,7 @@ import { build } from "esbuild";
 // or using an OpenAI account. The fixture is never packaged with the extension.
 const directory = await mkdtemp(join(tmpdir(), "scraper-firefox-"));
 try {
-  await cp("build", directory, { recursive: true });
+  await cp(".output/firefox-mv3", directory, { recursive: true });
   const manifest = JSON.parse(
     await readFile(join(directory, "manifest.json"), "utf8"),
   );

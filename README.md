@@ -1,6 +1,6 @@
 # Scraper
 
-Firefox Manifest V3 extension for declarative JSON scraping, built with strict TypeScript and esbuild. It extracts rendered listing and detail pages locally, with an optional ChatGPT-powered agent that inspects pages, generates scraping JSON, tests it, and revises it using tool feedback.
+Firefox Manifest V3 extension for declarative JSON scraping, built with WXT, React, and strict TypeScript. It extracts rendered listing and detail pages locally, with an optional ChatGPT-powered agent that inspects pages, generates scraping JSON, tests it, and revises it using tool feedback.
 
 ## Setup
 
@@ -9,6 +9,7 @@ Install [mise](https://mise.jdx.dev/getting-started.html) and [Firefox](https://
 ```sh
 mise trust
 mise install
+mise run install
 mise run dev
 ```
 
@@ -16,9 +17,9 @@ mise manages pinned Node.js and Mozilla `web-ext` versions. Tasks automatically 
 
 ## Development
 
-Edit source under `extension/`. Firefox API types are available through the global `browser` object, with strict TypeScript checking enabled.
+Edit source under `extension/`. WXT discovers entrypoints in `extension/entrypoints/`; extension pages use React through `@wxt-dev/module-react`. Firefox API types are available through the global `browser` object, with strict TypeScript checking enabled.
 
-`mise run dev` runs the compiler, TypeScript checker, and Firefox together. Changes to TypeScript, the manifest, or static assets rebuild `build/`, and web-ext reloads the extension. Refresh the page to apply content script changes. Type errors appear in the terminal; lint and release builds fail on them. Press Ctrl+C to stop all processes.
+`mise run dev` starts WXT in Firefox with React hot module replacement and extension reloads. WXT generates development output in `.output/firefox-mv3-dev/`. Run `mise run typecheck` for strict TypeScript checking; lint and release builds include it. Press Ctrl+C to stop WXT and its browser runner.
 
 The dev task reuses a dedicated `.firefox-profile/` directory (ignored by Git),
 so saved sign-in survives stopping and restarting `mise run dev`. It preserves
@@ -39,38 +40,38 @@ To select another Firefox binary, set `WEB_EXT_FIREFOX`:
 WEB_EXT_FIREFOX=/path/to/firefox mise run dev
 ```
 
-For manual loading, run `mise run compile`, then select `build/manifest.json` in `about:debugging` → **This Firefox** → **Load Temporary Add-on**. Recompile and click **Reload** after edits. Temporary extensions are removed when Firefox closes. Content scripts cannot run on restricted sites such as `addons.mozilla.org`.
+For manual loading, run `mise run compile`, then select `.output/firefox-mv3/manifest.json` in `about:debugging` → **This Firefox** → **Load Temporary Add-on**. Recompile and click **Reload** after edits. Temporary extensions are removed when Firefox closes. Content scripts cannot run on restricted sites such as `addons.mozilla.org`.
 
 ## Tasks
 
 | Command              | Purpose                                                     |
 | -------------------- | ----------------------------------------------------------- |
 | `mise run install`   | Install locked project dependencies                         |
-| `mise run dev`       | Watch sources, check types, and run Firefox                 |
-| `mise run compile`   | Compile TypeScript and copy assets into `build/`            |
+| `mise run dev`       | Run WXT with React hot reload in Firefox                    |
+| `mise run compile`   | Build Firefox MV3 with WXT into `.output/firefox-mv3/`      |
 | `mise run typecheck` | Run strict TypeScript checking                              |
 | `mise run lint`      | Check types, ESLint, Prettier formatting, and Mozilla rules |
 | `mise run format`    | Apply Prettier formatting                                   |
-| `mise run build`     | Run all checks and create an extension ZIP in `dist/`       |
+| `mise run build`     | Run all checks and create an extension ZIP in `.output/`    |
 
-ESLint checks JavaScript tooling and TypeScript extension code with recommended rules. Prettier handles formatting independently. Generated files and dependencies are excluded from both.
+ESLint checks JavaScript tooling and TypeScript extension code with recommended rules. Prettier handles formatting independently. Generated files and dependencies are excluded from both. Mozilla manifest and validation errors fail lint; upstream React `innerHTML` and Zod dynamic-compiler warnings remain visible without failing the task. Application code renders page data as React text, and Zod JIT compilation is disabled for extension CSP compatibility.
 
 ## Source
 
-- `extension/content.ts`: isolated worker content script for rendered DOM extraction.
-- `extension/scraper.ts` and `extension/scraper/`: JSON scraping UI, schema, runtime, and navigation guard.
-- `extension/background.ts` and `extension/auth/`: PIN-encrypted OAuth storage, refresh lifecycle, and authenticated requests.
-- `extension/settings.html` and `extension/settings.ts`: account and model-test UI.
-- `extension/manifest.json`: metadata, permissions, and script URL matches. References compiled `.js` files.
-- `extension/icons/`: static assets copied into the extension.
-- `scripts/build.mjs`: esbuild compilation and source watcher. Add new script entry points here as needed.
-- `tsconfig.json`: strict browser TypeScript configuration and Firefox API types.
+- `extension/entrypoints/`: WXT background, on-demand worker script, and React pages (`settings`, `scraper`, and `callback`). Page URLs remain `settings.html`, `scraper.html`, and `callback.html`.
+- `extension/content.ts`: isolated DOM extraction, registered by `scraper-worker.ts` and injected only after site access is granted.
+- `extension/scraper/`: scraping schema, runtime, agent, and navigation guard.
+- `extension/background.ts` and `extension/auth/`: PIN-encrypted OAuth storage, refresh lifecycle, and authenticated requests. Background listeners register synchronously in WXT's main callback.
+- `wxt.config.ts`: React module, Firefox MV3 manifest metadata and permissions, browser runner, and persistent development profile.
+- `public/icons/`: static assets copied unchanged by WXT.
+- `tsconfig.json`: extends WXT's generated configuration with strict Firefox and React types.
 - `eslint.config.mjs` and `.prettierrc.json`: lint and formatting rules.
-- `mise.toml`: tool versions and tasks.
+- `mise.toml`: pinned tool versions and all development, validation, and packaging tasks.
+- `tests/` and `scripts/*smoke.mjs`: unit and synthetic Firefox integration tests. esbuild is retained only for test harness bundles.
 
-`build/`, `dist/`, and `node_modules/` are ignored by Git. Only compiled JavaScript, the manifest, and static assets are packaged. esbuild bundles modules into content-script-compatible code and does not type-check; the separate TypeScript check runs during development and before packaging.
+`.wxt/`, `.output/`, and `node_modules/` are generated and ignored by Git. WXT generates the manifest from configuration and discovered entrypoints. `mise run compile` builds an unpacked production extension; `mise run build` validates it and uses WXT to create an unsigned ZIP in `.output/`. WXT does not type-check while bundling; `mise run typecheck` and `mise run lint` perform that check.
 
-The starter targets Firefox 142 or later. Before publishing, replace `scraper@example.com` with a unique add-on ID you control. Update the URL matches, description, permissions, and data collection declaration as functionality changes; this prototype declares authentication data collection and sends no scraped page data.
+The starter targets Firefox 142 or later. Before publishing, replace `scraper@example.com` with a unique add-on ID you control. Update the URL matches, description, permissions, and data collection declaration as functionality changes; this extension declares required authentication data collection and optional website content and browsing activity for AI generation. Manual scraping stays local.
 
 Builds are unsigned. Distribution through standard Firefox installations requires [Mozilla signing](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/). See Mozilla's [web-ext guide](https://extensionworkshop.com/documentation/develop/getting-started-with-web-ext/) for more details.
 
@@ -101,4 +102,4 @@ Run `mise run test` for mocked authentication tests and `mise run test:firefox`
 for synthetic redirect and encrypted-storage checks in a temporary Firefox profile. See
 [authentication notes](docs/authentication.md) for security boundaries, limitations,
 and manual verification steps. The starter's earlier no-data declaration has been
-replaced with `authenticationInfo`; no scraped page data is sent by this prototype.
+replaced with required `authenticationInfo` and optional `websiteContent` and `browsingActivity`. AI generation sends page samples only after permission is granted; manual scraping stays local.

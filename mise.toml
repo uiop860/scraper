@@ -3,30 +3,30 @@ node = "24.22.2"
 "npm:web-ext" = "10.8.0"
 
 [tasks.install]
-description = "Install locked project dependencies"
+description = "Install locked project dependencies and prepare WXT types"
 run = "npm ci"
 sources = ["package.json", "package-lock.json"]
 outputs = ["node_modules/.package-lock.json"]
 
 [tasks.compile]
-description = "Compile TypeScript and copy assets into build/"
+description = "Build the Firefox MV3 extension with WXT"
 depends = ["install"]
-run = "node scripts/build.mjs"
+run = "npm exec -- wxt build --browser firefox --mv3"
 
 [tasks.dev]
-description = "Watch sources, check types, and run Firefox"
-depends = ["compile"]
-run = "npm exec -- concurrently --kill-others --names build,types,firefox 'node scripts/build.mjs --watch' 'tsc --noEmit --watch --preserveWatchOutput' 'web-ext run --source-dir build --firefox-profile ./.firefox-profile --profile-create-if-missing --keep-profile-changes --pref=extensions.webextensions.keepStorageOnUninstall=true --pref=extensions.webextensions.keepUuidOnUninstall=true --start-url https://www.mozilla.org/en-US/'"
+description = "Run WXT with React hot reload in Firefox"
+depends = ["install"]
+run = ["mkdir -p .firefox-profile", "npm exec -- wxt --browser firefox --mv3"]
 
 [tasks.typecheck]
-description = "Check TypeScript types"
+description = "Prepare WXT types and check TypeScript"
 depends = ["install"]
-run = "npm exec -- tsc --noEmit"
+run = ["npm exec -- wxt prepare", "npm exec -- tsc --noEmit"]
 
 [tasks.lint]
 description = "Check types, ESLint, Prettier, and Mozilla extension rules"
 depends = ["compile", "typecheck"]
-run = ["npm exec -- eslint . --max-warnings 0", "npm exec -- prettier . --check", "web-ext lint --source-dir build --warnings-as-errors"]
+run = ["npm exec -- eslint . --max-warnings 0", "npm exec -- prettier . --check", "web-ext lint --source-dir .output/firefox-mv3"]
 
 [tasks.format]
 description = "Format source and configuration with Prettier"
@@ -34,9 +34,9 @@ depends = ["install"]
 run = "npm exec -- prettier . --write"
 
 [tasks.build]
-description = "Validate and package the extension into dist/"
+description = "Validate and package the Firefox extension with WXT"
 depends = ["lint"]
-run = "web-ext build --source-dir build --artifacts-dir dist --overwrite-dest"
+run = "npm exec -- wxt zip --browser firefox --mv3"
 
 [tasks.test]
 description = "Test scraping fixtures, runtime traversal, OAuth and background isolation"

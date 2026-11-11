@@ -123,7 +123,7 @@ limits. `dom.ts` handles extraction and bounded MutationObserver waits.
 page-driver interface so it can be tested without Firefox. `browser.ts` implements
 that interface using tabs, bundled script injection and extension messaging.
 `background.ts` inside the scraper directory owns worker lifecycle and navigation
-guards; it does not import authentication code. `extension/scraper.ts` owns the UI.
+guards; it does not import authentication code. `extension/entrypoints/scraper/main.tsx` owns the React UI.
 
 Every specification is validated before execution and again inside the content
 script. There is no evaluation of generated code, main-world injection, webpage

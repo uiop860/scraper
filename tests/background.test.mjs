@@ -123,7 +123,7 @@ async function harness(initial = {}) {
       );
     throw new Error("Unexpected fetch");
   };
-  await import(`${source}#${crypto.randomUUID()}`);
+  (await import(`${source}#${crypto.randomUUID()}`)).registerBackground();
   const sender = {
     id: "scraper",
     url: "moz-extension://scraper/settings.html",
@@ -148,7 +148,7 @@ async function harness(initial = {}) {
     async restart(browserRestart = false) {
       if (browserRestart)
         for (const key of Object.keys(sessionData)) delete sessionData[key];
-      await import(`${source}#${crypto.randomUUID()}`);
+      (await import(`${source}#${crypto.randomUUID()}`)).registerBackground();
     },
     stored,
     rules,
