@@ -1,3 +1,4 @@
+import { scraperOwner } from "./scraper/owner";
 import { registerScraperBackground } from "./scraper/background";
 import { registerScraperAgent } from "./scraper/agent-background";
 import { Authentication } from "./auth/lifecycle";
@@ -232,7 +233,11 @@ export function registerBackground() {
         return await completeLogin(message.url, sender);
       }
       if (
-        sender.url !== settings ||
+        (sender.url !== settings &&
+          !(
+            scraperOwner(sender) !== undefined &&
+            (message.type === "status" || message.type === "unlock")
+          )) ||
         (sender.frameId !== undefined && sender.frameId !== 0)
       )
         return;
@@ -280,6 +285,8 @@ export function registerBackground() {
       if (resetting && message.type !== "logout")
         throw new AuthError("Local sign-in reset is in progress.");
       if (message.type === "unlock") {
+        if (sender.url !== settings && !(await auth.status()).configured)
+          throw new AuthError("Set up your account in Settings first.");
         if (typeof message.pin !== "string")
           throw new AuthError("Enter exactly four digits.");
         await auth.unlock(message.pin);
@@ -377,7 +384,12 @@ export function registerBackground() {
     // Do not claim scraper messages: Firefox uses only one listener response.
     if (
       sender.url !== browser.runtime.getURL("settings.html") &&
-      sender.url?.split("#")[0] !== browser.runtime.getURL("callback.html")
+      sender.url?.split("#")[0] !== browser.runtime.getURL("callback.html") &&
+      !(
+        scraperOwner(sender) !== undefined &&
+        record(message) &&
+        (message.type === "status" || message.type === "unlock")
+      )
     )
       return;
     return handle(message, sender);

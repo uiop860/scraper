@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { env } from "node:process";
 import { defineConfig } from "wxt";
 
@@ -65,7 +66,7 @@ export default defineConfig({
   vite: () => ({ build: { target: "firefox142" } }),
   webExt: {
     binaries: env.WEB_EXT_FIREFOX ? { firefox: env.WEB_EXT_FIREFOX } : {},
-    firefoxProfile: ".firefox-profile",
+    firefoxProfile: resolve(".firefox-profile"),
     keepProfileChanges: true,
     firefoxPref: {
       "extensions.webextensions.keepStorageOnUninstall": true,

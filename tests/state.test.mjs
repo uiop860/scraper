@@ -49,7 +49,7 @@ test("settings projects public account fields and clears model access on sign-ou
   assert.equal(store.begin("test"), false);
   store.receiveStatus({ configured: true, locked: true, signedIn: false });
   assert.deepEqual(store.getState().models, []);
-  assert.equal(store.getState().model, "");
+  assert.equal(store.getState().model, "m");
   assert.equal(store.getState().account, undefined);
   store.finish("test");
   assert.equal(store.begin("test"), true);

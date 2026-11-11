@@ -3,6 +3,7 @@ export const workerKey = "scraperWorkers";
 export interface Worker {
   owner: number;
   tab: number;
+  ownsTab?: boolean;
   origin: string;
   rules: number[];
 }

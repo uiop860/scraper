@@ -117,7 +117,7 @@ export function browserDriver(
       spec: Spec,
       signal: AbortSignal,
     ): Promise<Snapshot> {
-      await load(url, signal);
+      await load(url, signal, true);
       const response = (await browser.tabs.sendMessage(
         tab,
         { type: "scraper.extract", spec, kind, origin },

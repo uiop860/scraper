@@ -64,7 +64,7 @@ export function createSettingsStore() {
             })
           : [],
         notice: typeof data.notice === "string" ? data.notice : "",
-        ...(!signedIn ? { models: [], model: "" } : {}),
+        ...(!signedIn ? { models: [] } : {}),
       });
     },
     begin(id: string) {

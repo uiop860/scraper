@@ -228,3 +228,122 @@ pre {
   display: inline-block;
   text-decoration: none;
 }
+
+.pin-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 24px;
+  background: light-dark(#f5f6f8, #15171b);
+}
+.pin-card {
+  width: 100%;
+  max-width: 300px;
+  margin: auto;
+  text-align: center;
+}
+.pin-emblem {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 24px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 32px;
+}
+.pin-card h2 {
+  margin: 10px 0;
+  font-size: 26px;
+  letter-spacing: -0.8px;
+}
+#pin-description,
+.pin-session {
+  color: var(--muted);
+  font-size: 13px;
+}
+.pin-entry {
+  display: block;
+  position: relative;
+  margin-top: 32px;
+  cursor: text;
+}
+.pin-entry input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: text;
+}
+.pin-boxes {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  pointer-events: none;
+}
+.pin-box {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  font-size: 20px;
+  transition:
+    border-color 120ms,
+    box-shadow 120ms;
+}
+.pin-box[data-filled="true"] {
+  border-color: var(--muted);
+}
+.pin-entry:focus-within .pin-box[data-active="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px light-dark(#365edc20, #91aaff20);
+}
+.pin-entry:has([aria-invalid="true"]) .pin-box {
+  border-color: light-dark(#b42336, #ff9ca8);
+}
+.pin-error {
+  min-height: 40px;
+  margin: 12px 0 0;
+  color: light-dark(#b42336, #ff9ca8);
+  font-size: 12px;
+}
+button.pin-unlock {
+  width: 100%;
+  padding: 12px;
+  background: var(--accent);
+  color: light-dark(#fff, #15171b);
+  border: 0;
+  border-radius: 12px;
+  font-weight: 600;
+}
+.pin-session {
+  margin: 16px 0 24px;
+  font-size: 11px;
+}
+button.pin-settings {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pin-box {
+    transition: none;
+  }
+}

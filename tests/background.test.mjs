@@ -477,3 +477,40 @@ test("callback sender may retain its original fragment after history replacement
     await h.close();
   }
 });
+
+test("sidebar can inspect and unlock saved auth but cannot manage the account", async () => {
+  const h = await harness();
+  const sidebar = {
+    id: "scraper",
+    url: "moz-extension://scraper/scraper.html?window=7",
+    frameId: 0,
+  };
+  try {
+    await h.send({ type: "login" });
+    assert.equal((await h.complete()).ok, true);
+    await h.restart(true);
+    const status = await h.send({ type: "status" }, sidebar);
+    assert.equal(status.locked, true);
+    assert.ok(!JSON.stringify(status).includes("SECRET"));
+    for (const type of ["login", "logout", "models", "test"])
+      assert.equal(await h.send({ type }, sidebar), undefined);
+    assert.equal(
+      await h.send({ type: "unlock", pin: "1234" }, { ...sidebar, frameId: 1 }),
+      undefined,
+    );
+    assert.equal(
+      await h.send(
+        { type: "unlock", pin: "1234" },
+        { ...sidebar, tab: { id: 2, incognito: true } },
+      ),
+      undefined,
+    );
+    assert.equal(
+      (await h.send({ type: "unlock", pin: "1234" }, sidebar)).ok,
+      true,
+    );
+    assert.equal((await h.send({ type: "status" }, sidebar)).signedIn, true);
+  } finally {
+    await h.close();
+  }
+});

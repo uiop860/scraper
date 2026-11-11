@@ -68,7 +68,7 @@ export function Chat({
               <h2>What would you like to extract?</h2>
               <p>
                 Describe the fields you need. I’ll inspect this site, build a
-                JSON scraper, and test a sample.
+                scraper, and test a sample.
               </p>
             </div>
           </AuiIf>

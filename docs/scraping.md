@@ -1,26 +1,27 @@
 # JSON scraping (version 1)
 
 Open a marketplace search in a regular Firefox tab and click **Scrape this page**.
-The button opens a sidebar alongside the active page. Open **JSON scraper**, replace the example selectors, click **Validate JSON**, then **Allow site access
-and run**. Firefox requests access to that site. Results appear as JSON and can
-be downloaded, including partial results after cancellation or a failure. No
-sign-in or AI request is involved in manual runs. **Settings** opens account settings in a separate tab.
+The button opens a sidebar alongside the active page. Describe what you want to
+extract in chat. Once the agent has built and sample-tested the scraper, click
+**Run scraper**. Results appear as JSON and can be downloaded, including partial
+results after cancellation or a failure. The scraper specification stays internal;
+you do not need to edit or validate JSON. **Settings** opens account settings in a
+separate tab.
 
-A separate worker tab loads listing and detail pages sequentially. Leave the
-sidebar open; closing it ends the run and closes its
-worker. Closing the worker interrupts extraction. Runs do not resume after a
+The current tab loads listing and detail pages sequentially. Leave the
+sidebar open; closing it ends the run and releases its navigation guard without
+closing your tab. Closing the tab interrupts extraction. Runs do not resume after a
 browser restart. Results are held in the UI's memory; download them before closing.
 
 The sidebar follows the active tab and its URL between runs. During a run, the
-source stays pinned to its starting page; **View agent’s tab** lets you watch
-the worker navigate. Switching sites does not grant access or start AI requests.
+source stays pinned to its starting page while the current tab navigates. Switching sites does not grant access or start AI requests.
 The `tabs` permission lets the sidebar display the active page across site changes;
 reading page content still requires optional site access.
 
 ## Generate JSON with an agent
 
-Sign in and unlock your account in **Account settings**. In the scraper, click
-**Load models**, select a model, describe the data to extract in the chat, then click
+Sign in and select a model in **Settings**. Unlock your account in the sidebar,
+describe the data to extract in the chat, then click
 **Send**. Follow-up messages revise the current JSON. The chat uses assistant-ui’s
 React primitives and connects to the existing background agent. This sends bounded rendered page samples and
 extracted test data to OpenAI using your selected model. Firefox requests optional
@@ -40,11 +41,11 @@ The agent has three tools:
 - `finish_scraper` accepts only the exact JSON that passed a test after inspection.
   Failed extraction, empty results, and required-field diagnostics prevent a pass.
 
-A successful specification appears in the JSON editor, ready to review and run.
+After a successful sample test, **Run scraper** becomes available.
 The conversation shows agent activity and test coverage. If no next-page link is found, pagination
 is explicitly reported as unverified. A sample test does not verify every item or
 page. Generation stops after 12 model turns, 24 tool calls, or five minutes;
-**Cancel** interrupts it and closes the worker. Existing editor contents are
+**Cancel** interrupts it and releases the current tab. The previous scraper is
 preserved if generation fails or is cancelled. Full scraping runs separately
 through **Allow site access and run**.
 

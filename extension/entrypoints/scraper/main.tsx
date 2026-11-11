@@ -1,3 +1,5 @@
+import { SidebarAccount } from "../../scraper/account";
+import { createPreferencesStore } from "../../state/preferences";
 import "./style.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { mountPage } from "../../ui/root";
@@ -7,42 +9,10 @@ import { storeField } from "../../state/field";
 import { Chat } from "../../scraper/chat";
 import { validateSelector } from "../../scraper/selectors";
 import { generateScraper } from "../../scraper/agent";
-import { dbaListings } from "../../scraper/dba";
 import { LIMITS, navigationUrl, parseSpec } from "../../scraper/spec";
 import { browserDriver } from "../../scraper/browser";
 import { runScraper, resultJson } from "../../scraper/runner";
 
-const example = JSON.stringify(
-  {
-    version: 1,
-    name: "Marketplace listings",
-    list: {
-      itemSelector: ".listing-card",
-      fields: {
-        title: { selector: "h2", value: "text" },
-        url: {
-          selector: "a[href]",
-          value: "attribute",
-          attribute: "href",
-          resolveUrl: true,
-        },
-      },
-    },
-    detail: {
-      linkField: "url",
-      fields: {
-        description: {
-          selector: ".description",
-          value: "text",
-          optional: true,
-        },
-      },
-    },
-    pagination: { type: "next", selector: "a[rel='next']" },
-  },
-  null,
-  2,
-);
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : "Scraping failed.";
 type Source = { tab?: number; url: string; origin: string; label: string };
@@ -53,24 +23,18 @@ const emptySource: Source = {
 };
 
 function Scraper() {
+  const [preferences] = useState(createPreferencesStore);
+  const model = useStore(preferences, (state) => state.model);
   const [store] = useState(() => {
-    const store = createScraperStore(example);
+    const store = createScraperStore("");
     store.setState({
       source: emptySource.label,
-      status: "Load a model to chat, or open the JSON editor below.",
+      status: "Describe the data you want to extract.",
     });
     return store;
   });
   const snapshot = useStore(store);
-  const {
-    spec: editor,
-    status,
-    models,
-    model,
-    result,
-    messages,
-    busy: operation,
-  } = snapshot;
+  const { spec: editor, status, result, messages, busy: operation } = snapshot;
   const source: Source = {
     tab: snapshot.sourceTab,
     url: snapshot.startUrl,
@@ -78,23 +42,19 @@ function Scraper() {
     label: snapshot.source,
   };
   const busy = operation === "scraping" || operation === "generating";
-  const controls = scraperControls(snapshot);
+  const controls = scraperControls({ ...snapshot, model });
   const setEditor = storeField(store, "spec");
   const setValidated = storeField(store, "validated");
   const setStatus = storeField(store, "status");
-  const setModels = storeField(store, "models");
-  const setModel = storeField(store, "model");
   const setResult = storeField(store, "result");
   const setMessages = storeField(store, "messages");
   const setCancelling = storeField(store, "cancelling");
   const [workerTab, setWorkerTab] = useState<number>();
-  const [editorOpen, setEditorOpen] = useState(false);
   const [resultsOpen, setResultsOpen] = useState(false);
   const [exportUrl, setExportUrl] = useState("");
   const active = useRef<AbortController | undefined>(undefined);
   const windowId = useRef<number | undefined>(undefined);
   const live = useRef(false);
-  const edited = useRef(false);
   const refreshSequence = useRef(0);
 
   const refreshSource = useCallback(async () => {
@@ -121,14 +81,6 @@ function Scraper() {
       )
         throw new Error("Authentication origins cannot be scraped.");
       store.setState({ sourceTab: tab.id, startUrl: url, origin, source: url });
-      if (
-        !edited.current &&
-        new URL(url).hostname === "www.dba.dk" &&
-        new URL(url).pathname === "/recommerce/forsale/search"
-      ) {
-        edited.current = true;
-        store.editSpec(JSON.stringify(dbaListings, null, 2));
-      }
     } catch (error) {
       if (
         live.current &&
@@ -182,15 +134,6 @@ function Scraper() {
         if (!live.current || window.incognito || window.id === undefined)
           return;
         windowId.current = window.id;
-        if (
-          new URL(location.href).searchParams.get("window") !==
-          String(window.id)
-        ) {
-          location.replace(
-            browser.runtime.getURL(`scraper.html?window=${window.id}`),
-          );
-          return;
-        }
         connection = browser.runtime.connect({ name: "scraper.sidebar" });
         await refreshSource();
       })
@@ -215,45 +158,6 @@ function Scraper() {
     return () => URL.revokeObjectURL(url);
   }, [result]);
 
-  function validate() {
-    try {
-      const spec = parseSpec(editor, validateSelector);
-      if (!source.url)
-        throw new Error(
-          "Source tab unavailable. Select a regular HTTP(S) page.",
-        );
-      setValidated(editor);
-      setStatus(
-        `Valid: ${spec.name}. JSON and CSS syntax accepted; website matches are checked during execution. Approved origin: ${source.origin}.`,
-      );
-    } catch (error) {
-      setValidated("");
-      setStatus(errorText(error));
-    }
-  }
-  async function loadModels() {
-    if (active.current) return;
-    if (!store.begin("models")) return;
-    setStatus("Loading available models…");
-    try {
-      const response = await browser.runtime.sendMessage({
-        type: "scraper.agent.models",
-      });
-      if (!response?.ok)
-        throw new Error(response?.error ?? "Models unavailable.");
-      setModels(response.models);
-      setModel(response.models[0]?.id ?? "");
-      setStatus(
-        response.models.length
-          ? "Describe the data you want, then generate a scraper."
-          : "No available models. Check Account settings.",
-      );
-    } catch (error) {
-      setStatus(errorText(error));
-    } finally {
-      store.finish();
-    }
-  }
   function cancel() {
     active.current?.abort();
     setCancelling(true);
@@ -298,6 +202,22 @@ function Scraper() {
     try {
       if (!(await permission)) throw new Error("Site access was declined.");
       controller.signal.throwIfAborted();
+      if (request !== undefined) {
+        const catalog = await browser.runtime.sendMessage({
+          type: "scraper.agent.models",
+        });
+        controller.signal.throwIfAborted();
+        if (!catalog?.ok)
+          throw new Error(
+            catalog?.error ?? "Models unavailable. Check Settings.",
+          );
+        if (
+          !catalog.models.some((choice: { id: string }) => choice.id === model)
+        )
+          throw new Error(
+            "The saved model is unavailable. Choose another model in Settings.",
+          );
+      }
       const worker = await browser.runtime.sendMessage({
         type: "scraper.worker.open",
         sourceTab: source.tab,
@@ -315,7 +235,9 @@ function Scraper() {
       const driver = browserDriver(worker.tab, source.origin);
       if (request !== undefined) {
         const spec = await generateScraper(
-          `${request}\nCurrent JSON to revise (may contain example selectors):\n${editor}`,
+          editor
+            ? `${request}\nCurrent scraper to revise:\n${editor}`
+            : request,
           source.url,
           driver,
           async (input, signal) => {
@@ -339,11 +261,9 @@ function Scraper() {
         );
         controller.signal.throwIfAborted();
         const json = JSON.stringify(spec, null, 2);
-        edited.current = true;
         setEditor(json);
         setValidated(json);
-        setEditorOpen(true);
-        const message = `Generated and sample-tested: ${spec.name}. Review the JSON, then run the full scraper. See the conversation for test coverage.`;
+        const message = `Ready: ${spec.name}. Select Run scraper to collect the full results.`;
         setStatus(message);
         reviseReply(reply, `${log}\n${message}`);
       } else {
@@ -415,37 +335,14 @@ function Scraper() {
               void browser.tabs.update(workerTab, { active: true });
             }}
           >
-            View agent’s tab ↗
+            View working tab ↗
           </button>
         )}
       </section>
-      <div className="model-row">
-        <button
-          id="load-models"
-          disabled={controls.loadModels}
-          onClick={() => {
-            void loadModels();
-          }}
-        >
-          Load models
-        </button>
-        <label htmlFor="agent-model">Model</label>
-        <select
-          id="agent-model"
-          value={model}
-          disabled={controls.model}
-          onChange={(event) => setModel(event.target.value)}
-        >
-          {models.map((choice) => (
-            <option key={choice.id} value={choice.id}>
-              {choice.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      <SidebarAccount />
       <p className="hint">
-        Sign in and unlock in Settings to chat. JSON scraping works without
-        sign-in.
+        {model ? `Model: ${model}.` : "Choose a model in Settings."} Sign in
+        through Settings to chat.
       </p>
       <section id="chat" aria-label="Scraper conversation">
         <Chat
@@ -467,52 +364,22 @@ function Scraper() {
       <p id="status" role="status" aria-live="polite">
         {status}
       </p>
-      <details
-        className="workspace"
-        open={editorOpen}
-        onToggle={(event) => setEditorOpen(event.currentTarget.open)}
-      >
-        <summary>JSON scraper</summary>
-        <label htmlFor="spec">Specification</label>
-        <textarea
-          id="spec"
-          value={editor}
-          onChange={(event) => {
-            edited.current = true;
-            store.editSpec(event.target.value);
+      <div className="actions">
+        <button
+          id="run"
+          disabled={controls.run || !source.url}
+          onClick={() => {
+            void execute(
+              browser.permissions.request({ origins: [`${source.origin}/*`] }),
+            );
           }}
-          disabled={controls.editor}
-          rows={16}
-          spellCheck={false}
-          maxLength={64000}
-        />
-        <div className="actions">
-          <button id="validate" disabled={controls.validate} onClick={validate}>
-            Validate JSON
-          </button>
-          <button
-            id="run"
-            disabled={controls.run || !source.url}
-            onClick={() => {
-              void execute(
-                browser.permissions.request({
-                  origins: [`${source.origin}/*`],
-                }),
-              );
-            }}
-          >
-            Allow site access and run
-          </button>
-          <button id="stop" disabled={controls.stop} onClick={cancel}>
-            Cancel
-          </button>
-        </div>
-        <p className="hint">
-          Runs use a separate tab and stay on the starting site. Limits: 20
-          listing pages, 200 items, 220 document visits, one detail level, five
-          minutes.
-        </p>
-      </details>
+        >
+          Run scraper
+        </button>
+        <button id="stop" disabled={controls.stop} onClick={cancel}>
+          Cancel
+        </button>
+      </div>
       <details
         className="workspace"
         open={resultsOpen}
@@ -534,4 +401,19 @@ function Scraper() {
   );
 }
 
-mountPage(<Scraper />);
+async function startSidebar() {
+  const window = await browser.windows.getCurrent();
+  if (window.incognito || window.id === undefined) return;
+  if (new URL(location.href).searchParams.get("window") !== String(window.id)) {
+    location.replace(
+      browser.runtime.getURL(`scraper.html?window=${window.id}`),
+    );
+    return;
+  }
+  mountPage(<Scraper />);
+}
+
+void startSidebar().catch(() => {
+  const root = document.getElementById("root");
+  if (root) root.textContent = "Could not open the sidebar. Please reopen it.";
+});

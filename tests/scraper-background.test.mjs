@@ -42,6 +42,11 @@ async function harness() {
         },
       },
     },
+    scripting: {
+      async executeScript({ target }) {
+        events.push(`stop:${target.tabId}`);
+      },
+    },
     permissions: {
       async contains() {
         return true;
@@ -146,7 +151,7 @@ async function harness() {
     },
   };
 }
-test("worker lifecycle isolates senders and closes before releasing origin guards", async () => {
+test("worker lifecycle isolates senders and stops the current tab before releasing origin guards", async () => {
   const h = await harness();
   try {
     for (const sender of [
@@ -181,24 +186,26 @@ test("worker lifecycle isolates senders and closes before releasing origin guard
       );
     const worker = await h.open();
     assert.equal(worker.ok, true);
+    assert.equal(worker.tab, 2);
+    assert.equal(h.tabs.size, 2);
     assert.equal(h.rules.size, 2);
     assert.equal(h.session.scraperWorkers.length, 1);
     h.removeOwner();
     await h.flush();
-    assert.equal(h.tabs.has(3), false);
+    assert.equal(h.tabs.has(2), true);
     assert.equal(h.rules.size, 0);
     assert.equal(h.session.scraperWorkers.length, 0);
-    assert.ok(h.events.indexOf("close:3") < h.events.indexOf("release:1006"));
+    assert.ok(h.events.indexOf("stop:2") < h.events.indexOf("release:1004"));
   } finally {
     h.close();
   }
 });
-test("failed guard installation and navigating the UI away both clean up worker tabs", async () => {
+test("failed guard installation and navigating the UI away release the current tab", async () => {
   const h = await harness();
   try {
     h.failRules();
     assert.equal((await h.open()).ok, false);
-    assert.equal(h.tabs.has(3), false);
+    assert.equal(h.tabs.has(2), true);
     assert.equal(h.session.scraperWorkers.length, 0);
   } finally {
     h.close();
@@ -208,22 +215,23 @@ test("failed guard installation and navigating the UI away both clean up worker 
     assert.equal((await next.open()).ok, true);
     next.navigateOwner();
     await next.flush();
-    assert.equal(next.tabs.has(3), false);
+    assert.equal(next.tabs.has(2), true);
     assert.equal(next.rules.size, 0);
   } finally {
     next.close();
   }
 });
 
-test("failed tab closure retains the navigation guard and reports failure", async () => {
+test("legacy disposable tabs retain their guard when closure fails", async () => {
   const h = await harness();
   try {
     await h.open();
+    h.session.scraperWorkers[0].ownsTab = true;
     h.denyClose(true);
     const response = await h.send({ type: "scraper.worker.close" });
     assert.equal(response.ok, false);
     assert.equal(h.rules.size, 2);
-    assert.equal(h.tabs.has(3), true);
+    assert.equal(h.tabs.has(2), true);
     h.denyClose(false);
     assert.equal((await h.send({ type: "scraper.worker.close" })).ok, true);
     assert.equal(h.rules.size, 0);
@@ -248,10 +256,10 @@ test("sidebar workers are isolated by window and cleaned up on disconnect", asyn
     assert.equal(h.session.scraperWorkers[0].owner, -8);
     const other = h.connect(8);
     await h.send({ type: "scraper.worker.close" }, other.sender);
-    assert.equal(h.tabs.has(3), true);
+    assert.equal(h.tabs.has(2), true);
     sidebar.disconnect();
     await h.flush();
-    assert.equal(h.tabs.has(3), false);
+    assert.equal(h.tabs.has(2), true);
     assert.equal(h.rules.size, 0);
     assert.equal(
       (

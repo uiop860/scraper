@@ -31,6 +31,10 @@ async function mount(
   browser,
   url = "moz-extension://test/settings.html",
 ) {
+  browser.storage ??= {
+    local: { get: async () => ({}), set: async () => {} },
+    onChanged: { addListener() {}, removeListener() {} },
+  };
   const { window, document } = parseHTML(
     '<html><body><div id="root"></div></body></html>',
   );
@@ -104,7 +108,15 @@ async function mount(
 test("React settings load account state, load models, test the selection, and sign out", async () => {
   let signedIn = true;
   const requests = [];
+  const saved = {};
   const h = await mount("extension/entrypoints/settings/main.tsx", {
+    storage: {
+      local: {
+        get: async () => ({ ...saved }),
+        set: async (data) => Object.assign(saved, data),
+      },
+      onChanged: eventSource(),
+    },
     runtime: {
       async sendMessage(message) {
         requests.push(message);
@@ -151,6 +163,7 @@ test("React settings load account state, load models, test the selection, and si
         h.document.querySelector("#model option")?.value === "selected-model",
     );
     await waitFor(() => !h.document.querySelector("#test").disabled);
+    assert.equal(saved.selectedModel, "selected-model");
     h.document.querySelector("#test").click();
     await waitFor(
       () =>
@@ -167,7 +180,10 @@ test("React settings load account state, load models, test the selection, and si
     );
     assert.equal(h.document.querySelector("#unlock-form").hidden, false);
     assert.equal(h.document.querySelector("#test").disabled, true);
-    assert.equal(h.document.querySelectorAll("#model option").length, 0);
+    assert.equal(
+      h.document.querySelector("#model option").value,
+      "selected-model",
+    );
   } finally {
     await h.close();
   }
@@ -214,18 +230,9 @@ test("React sidebar follows active pages and cleans up browser subscriptions", a
   let settingsOpened = 0,
     disconnects = 0;
   const requests = [];
-  const opening = Promise.withResolvers();
-  const permissions = [];
-  let allow = false;
   const h = await mount(
     "extension/entrypoints/scraper/main.tsx",
     {
-      permissions: {
-        request(permission) {
-          permissions.push(permission);
-          return Promise.resolve(allow);
-        },
-      },
       windows: { getCurrent: async () => ({ id: 7 }) },
       tabs: { onActivated, onUpdated, onRemoved, query: async () => [tab] },
       runtime: {
@@ -240,7 +247,6 @@ test("React sidebar follows active pages and cleans up browser subscriptions", a
         },
         sendMessage: async (message) => {
           requests.push(message);
-          if (message.type === "scraper.worker.open") return opening.promise;
           return { ok: true };
         },
       },
@@ -253,49 +259,9 @@ test("React sidebar follows active pages and cleans up browser subscriptions", a
     );
     h.document.querySelector("#settings").click();
     assert.equal(settingsOpened, 1);
-    h.document.querySelector("#validate").click();
-    await waitFor(() =>
-      h.document.querySelector("#status").textContent.startsWith("Valid:"),
-    );
-    assert.equal(h.document.querySelector("#run").disabled, false);
-    h.document.querySelector("#run").click();
-    // The permission request happens in the original event, before any await.
-    assert.deepEqual(permissions, [{ origins: ["https://market.test/*"] }]);
-    await waitFor(
-      () =>
-        h.document.querySelector("#status").textContent ===
-        "Site access was declined.",
-    );
-    assert.equal(
-      requests.some((message) => message.type === "scraper.worker.open"),
-      false,
-    );
-    await waitFor(() => !h.document.querySelector("#run").disabled);
-    allow = true;
-    h.document.querySelector("#run").click();
-    await waitFor(() =>
-      requests.some((message) => message.type === "scraper.worker.open"),
-    );
-    tab = { id: 4, url: "https://switched-during-run.test/" };
-    onActivated.emit({ tabId: 4, windowId: 7 });
-    assert.equal(
-      h.document.querySelector("#source").textContent,
-      "https://market.test/search",
-    );
-    h.document.querySelector("#stop").click();
-    opening.resolve({
-      ok: true,
-      tab: 99,
-      origin: "https://market.test",
-      startUrl: "https://market.test/search",
-    });
-    await waitFor(
-      () => h.document.querySelector("#status").textContent === "Cancelled.",
-    );
-    await waitFor(() => !h.document.querySelector("#run").disabled);
-    assert.ok(
-      requests.some((message) => message.type === "scraper.worker.close"),
-    );
+    assert.equal(h.document.querySelector("#spec"), null);
+    assert.equal(h.document.querySelector("#validate"), null);
+    assert.equal(h.document.querySelector("#run").disabled, true);
     tab = { id: 3, url: "https://another.test/list" };
     onActivated.emit({ tabId: 3, windowId: 7 });
     await waitFor(
@@ -329,6 +295,44 @@ test("React callback handles an immediately rejected background relay", async ()
         ?.textContent.includes("extension restarted"),
     );
     assert.equal(h.location.hash, "");
+  } finally {
+    await h.close();
+  }
+});
+
+test("sidebar covers its content until auth status resolves, then shows the PIN screen", async () => {
+  const status = Promise.withResolvers();
+  const h = await mount(
+    "extension/entrypoints/scraper/main.tsx",
+    {
+      windows: { getCurrent: async () => ({ id: 7 }) },
+      tabs: {
+        onActivated: eventSource(),
+        onUpdated: eventSource(),
+        onRemoved: eventSource(),
+        query: async () => [{ id: 2, url: "https://example.test/" }],
+      },
+      runtime: {
+        getURL: (path) => `moz-extension://test/${path}`,
+        connect: () => ({ disconnect() {} }),
+        sendMessage: async (message) =>
+          message.type === "status" ? status.promise : { ok: true },
+      },
+    },
+    "moz-extension://test/scraper.html?window=7",
+  );
+  try {
+    await waitFor(() => h.document.querySelector(".pin-screen"));
+    assert.equal(
+      h.document.querySelector(".pin-screen").getAttribute("aria-busy"),
+      "true",
+    );
+    assert.equal(h.document.querySelector("#sidebar-pin"), null);
+    status.resolve({ ok: true, configured: true, locked: true });
+    await waitFor(() => h.document.querySelector("#sidebar-pin"));
+    assert.equal(h.document.querySelectorAll(".pin-screen").length, 1);
+    assert.equal(h.document.querySelectorAll(".pin-box").length, 4);
+    assert.equal(h.document.querySelector("#sidebar-pin").type, "password");
   } finally {
     await h.close();
   }

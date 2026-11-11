@@ -419,3 +419,16 @@ test("DBA example extracts actual listing structure without illustrative classes
   );
   assert.equal(page.diagnostics.length, 0);
 });
+
+test("listing-only results omit detail from exported items", async () => {
+  const listingOnly = { version: 1, name: "Listing only", list: spec.list };
+  const driver = fixtureDriver({ [start]: html });
+  const result = await runScraper(listingOnly, start, driver, signal());
+  assert.ok(result.items.length > 0);
+  assert.ok(result.items.every((item) => !Object.hasOwn(item, "detail")));
+  const exported = JSON.parse(resultJson(result));
+  assert.deepEqual(
+    exported.items,
+    result.items.map(({ data }) => ({ data })),
+  );
+});

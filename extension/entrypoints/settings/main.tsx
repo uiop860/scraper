@@ -1,3 +1,4 @@
+import { createPreferencesStore } from "../../state/preferences";
 import "./style.css";
 import { useStore } from "zustand";
 import { createSettingsStore } from "../../state/settings";
@@ -33,9 +34,11 @@ async function send(message: object) {
 }
 
 function Settings() {
+  const [preferences] = useState(createPreferencesStore);
+  const model = useStore(preferences, (state) => state.model);
   const [store] = useState(createSettingsStore);
   const state = useStore(store);
-  const { output, models, model, running } = state;
+  const { output, models, running } = state;
   const status: AccountStatus = {
     ...state,
     registrations: state.registrations.map((r) => ({
@@ -49,7 +52,6 @@ function Settings() {
   };
   const setOutput = storeField(store, "output");
   const setModels = storeField(store, "models");
-  const setModel = storeField(store, "model");
   const [account, setAccount] = useState("");
   const [pin, setPin] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -232,7 +234,10 @@ function Settings() {
           Sign out
         </button>
       </div>
-      <h2>Check model access</h2>
+      <h2>Scraper model</h2>
+      <p>
+        Your selected model is saved and used by the sidebar across sessions.
+      </p>
       <p>
         This sends a fixed greeting to OpenAI and uses your account's allowance.
         No webpage data is sent.
@@ -247,7 +252,10 @@ function Settings() {
               Array.isArray(data.models) ? data.models.filter(record) : []
             ).map((item) => ({ id: String(item.id), name: String(item.name) }));
             setModels(choices);
-            setModel(choices[0]?.id ?? "");
+            const selected = preferences.getState().model;
+            if (!selected && choices[0]) {
+              await preferences.getState().setModel(choices[0].id);
+            }
             setOutput(
               choices.length
                 ? "Model catalog loaded. A successful test request verifies access."
@@ -262,8 +270,17 @@ function Settings() {
       <select
         id="model"
         value={model}
-        onChange={(event) => setModel(event.target.value)}
+        onChange={(event) => {
+          const selectedModel = event.target.value;
+          void action("save-model", async () => {
+            await preferences.getState().setModel(selectedModel);
+          });
+        }}
+        disabled={running.has("save-model")}
       >
+        {!models.some((choice) => choice.id === model) && (
+          <option value={model}>{model || "Load models to choose"}</option>
+        )}
         {models.map((choice) => (
           <option key={choice.id} value={choice.id}>
             {choice.name}

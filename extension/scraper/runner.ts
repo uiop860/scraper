@@ -13,7 +13,7 @@ export interface PageDriver {
 }
 export interface Item {
   data: Data;
-  detail: Data | null;
+  detail?: Data | null;
   source: { list: string; detail?: string };
 }
 export interface Visit {
@@ -183,7 +183,11 @@ export async function runScraper(
         if (identities.has(identity)) continue;
         if (result.items.length >= LIMITS.items) limited("Item limit reached.");
         identities.add(identity);
-        const item: Item = { data, detail: null, source: { list: page.url } };
+        const item: Item = {
+          data,
+          ...(spec.detail ? { detail: null } : {}),
+          source: { list: page.url },
+        };
         // Retain listing data even when detail extraction fails or is cancelled.
         const size = new TextEncoder().encode(JSON.stringify(item)).length;
         if (bytes + size > LIMITS.resultBytes)

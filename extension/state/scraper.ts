@@ -61,7 +61,8 @@ export function createScraperStore(spec: string) {
 export function scraperControls(state: ScraperState) {
   const busy = state.busy !== null;
   return {
-    run: busy || !state.validated || state.validated !== state.spec,
+    run:
+      busy || !state.spec || !state.validated || state.validated !== state.spec,
     validate: busy,
     editor: busy,
     stop: !busy || state.busy === "models" || state.cancelling,

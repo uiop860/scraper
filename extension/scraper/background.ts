@@ -12,20 +12,28 @@ export function registerScraperBackground() {
     );
   }
   async function remove(worker: Worker) {
-    // Close before removing the guard, including when the UI disappears mid-navigation.
-    try {
-      await browser.tabs.remove(worker.tab);
-    } catch {
-      // Only release rules once the tab is known to be gone.
-      const exists = await browser.tabs.get(worker.tab).then(
-        () => true,
-        () => false,
-      );
-      if (exists)
-        throw new Error(
-          "Worker tab could not be closed; its navigation guard remains installed.",
+    // Existing records without ownsTab belong to disposable tabs from older versions.
+    if (worker.ownsTab === false) {
+      await browser.scripting
+        .executeScript({
+          target: { tabId: worker.tab, frameIds: [0] },
+          func: () => window.stop(),
+        })
+        .catch(() => {});
+    } else
+      try {
+        await browser.tabs.remove(worker.tab);
+      } catch {
+        // Only release rules once the tab is known to be gone.
+        const exists = await browser.tabs.get(worker.tab).then(
+          () => true,
+          () => false,
         );
-    }
+        if (exists)
+          throw new Error(
+            "Worker tab could not be closed; its navigation guard remains installed.",
+          );
+      }
     await browser.declarativeNetRequest.updateSessionRules({
       removeRuleIds: worker.rules,
     });
@@ -83,15 +91,15 @@ export function registerScraperBackground() {
         throw new Error("Site access has not been granted.");
       for (const worker of await workers())
         if (worker.owner === owner) await remove(worker);
-      const tab = await browser.tabs.create({
-        url: "about:blank",
-        active: false,
-      });
-      if (tab.id === undefined) throw new Error("Could not create worker tab.");
-      const rules = guardRules(tab.id, origin);
+      if ((await workers()).some((worker) => worker.tab === task.sourceTab))
+        throw new Error(
+          "This tab is already being used by another scraper run.",
+        );
+      const rules = guardRules(task.sourceTab, origin);
       const worker: Worker = {
         owner,
-        tab: tab.id,
+        tab: task.sourceTab,
+        ownsTab: false,
         origin,
         rules: rules.map((r) => r.id),
       };

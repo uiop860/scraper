@@ -8,6 +8,10 @@ async function mount(
   api,
   url = "moz-extension://scraper/scraper.html?tab=2",
 ) {
+  api.storage ??= {
+    local: { get: async () => ({}), set: async () => {} },
+    onChanged: { addListener() {}, removeListener() {} },
+  };
   const { window } = parseHTML(
     '<html><body><div id="root"></div></body></html>',
   );
@@ -211,3 +215,44 @@ for (const trigger of ["reset", "logout", "poll"]) {
     }
   });
 }
+
+test("settings restores the saved model across sessions and keeps it while locked", async () => {
+  const saved = { selectedModel: "remembered-model" };
+  const api = {
+    storage: {
+      local: {
+        get: async () => ({ ...saved }),
+        set: async (data) => Object.assign(saved, data),
+      },
+      onChanged: { addListener() {}, removeListener() {} },
+    },
+    runtime: {
+      sendMessage: async () => ({
+        ok: true,
+        configured: true,
+        locked: true,
+        signedIn: false,
+      }),
+    },
+  };
+  for (let session = 0; session < 2; session++) {
+    const page = await mount("settings", api);
+    try {
+      await page.until(
+        () =>
+          page.document.querySelector("#model option")?.value ===
+          saved.selectedModel,
+      );
+      page.poll();
+      await page.until(() =>
+        page.document.querySelector("#status")?.textContent.includes("locked"),
+      );
+      assert.equal(
+        page.document.querySelector("#model option").value,
+        "remembered-model",
+      );
+    } finally {
+      page.close();
+    }
+  }
+});

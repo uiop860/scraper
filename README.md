@@ -77,11 +77,12 @@ Builds are unsigned. Distribution through standard Firefox installations require
 
 ## JSON scraping
 
-Open a marketplace search tab and click the extension button to open the sidebar, paste, validate,
-and run a JSON scraping specification. Listing pagination and detail pages run
-locally in a separate tab with exact-origin navigation limits. Download complete
-or partial JSON results; no AI or sign-in is required for manual runs. To generate
-the JSON, sign in, load models, describe the data you want in chat, and click **Send**. The agent inspects, tests and revises its specification. See [scraping documentation](docs/scraping.md)
+Open a marketplace search tab and click the extension button to open the sidebar.
+Sign in and choose a model in Settings, then describe the data you want in chat.
+The agent inspects the page, builds a scraper, and tests a sample. Click **Run scraper**
+to collect the full results. Listing pagination and detail pages run locally in the
+current tab with exact-origin navigation limits. Download complete or partial JSON
+results. The scraper specification stays internal. See [scraping documentation](docs/scraping.md)
 for the contract, examples, security boundaries, tests, and limitations.
 
 ## Experimental ChatGPT authentication
