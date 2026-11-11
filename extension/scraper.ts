@@ -1,9 +1,10 @@
+import { createScraperStore, scraperControls } from "./state/scraper";
 import { validateSelector } from "./scraper/selectors";
 import { generateScraper } from "./scraper/agent";
 import { dbaListings } from "./scraper/dba";
 import { LIMITS, navigationUrl, parseSpec } from "./scraper/spec";
 import { browserDriver } from "./scraper/browser";
-import { runScraper, resultJson, type Result } from "./scraper/runner";
+import { runScraper, resultJson } from "./scraper/runner";
 const editor = document.querySelector<HTMLTextAreaElement>("#spec")!;
 const status = document.querySelector<HTMLElement>("#status")!;
 const source = document.querySelector<HTMLElement>("#source")!;
@@ -18,14 +19,7 @@ const model = document.querySelector<HTMLSelectElement>("#agent-model")!;
 const goal = document.querySelector<HTMLTextAreaElement>("#agent-goal")!;
 const generate = document.querySelector<HTMLButtonElement>("#generate")!;
 const agentLog = document.querySelector<HTMLElement>("#agent-log")!;
-let startUrl = "";
-let origin = "";
-let controller: AbortController | undefined;
-let validated = "";
-let result: Result | undefined;
-const errorText = (error: unknown) =>
-  error instanceof Error ? error.message : "Scraping failed.";
-editor.value = JSON.stringify(
+const initialSpec = JSON.stringify(
   {
     version: 1,
     name: "Marketplace listings",
@@ -56,8 +50,40 @@ editor.value = JSON.stringify(
   null,
   2,
 );
-source.textContent =
-  "Loading source tab. Example selectors must be replaced for your website.";
+const store = createScraperStore(initialSpec);
+let controller: AbortController | undefined;
+const errorText = (error: unknown) =>
+  error instanceof Error ? error.message : "Scraping failed.";
+function render() {
+  const state = store.getState();
+  const disabled = scraperControls(state);
+  if (editor.value !== state.spec) editor.value = state.spec;
+  if (goal.value !== state.goal) goal.value = state.goal;
+  source.textContent = state.source;
+  status.textContent = state.status;
+  agentLog.textContent = state.log;
+  run.disabled = disabled.run;
+  validate.disabled = disabled.validate;
+  editor.disabled = disabled.editor;
+  stop.disabled = disabled.stop;
+  download.disabled = disabled.download;
+  loadModels.disabled = disabled.loadModels;
+  model.disabled = disabled.model;
+  goal.disabled = disabled.goal;
+  generate.disabled = disabled.generate;
+}
+const unsubscribe = store.subscribe((state, previous) => {
+  if (state.models !== previous.models) {
+    model.replaceChildren(
+      ...state.models.map((choice) => new Option(choice.name, choice.id)),
+    );
+  }
+  model.value = state.model;
+  if (state.result !== previous.result)
+    results.textContent = state.result ? resultJson(state.result) : "";
+  render();
+});
+render();
 void browser.tabs
   .get(sourceTab)
   .then((tab) => {
@@ -65,65 +91,65 @@ void browser.tabs
       throw new Error(
         "Open a regular HTTP(S) marketplace tab and click the extension button.",
       );
-    origin = new URL(tab.url).origin;
-    startUrl = navigationUrl(tab.url, tab.url, origin);
+    const origin = new URL(tab.url).origin;
+    const startUrl = navigationUrl(tab.url, tab.url, origin);
     if (
       ["auth.openai.com", "api.openai.com"].includes(new URL(origin).hostname)
     )
       throw new Error("Authentication origins cannot be scraped.");
-    if (
+    const preset =
       new URL(startUrl).hostname === "www.dba.dk" &&
-      new URL(startUrl).pathname === "/recommerce/forsale/search"
-    ) {
-      editor.value = JSON.stringify(dbaListings, null, 2);
-      source.textContent = `Source: ${startUrl}. DBA preset follows each listing link and extracts its description. Next-page pagination is not preconfigured; use the agent to configure it when available.`;
-    } else {
-      source.textContent = `Source: ${startUrl}. Example selectors must be replaced for your website.`;
-    }
-    generate.disabled = !!controller || !model.value;
+      new URL(startUrl).pathname === "/recommerce/forsale/search";
+    // Do not overwrite edits made while the source tab was loading.
+    if (preset && store.getState().spec === initialSpec)
+      store.editSpec(JSON.stringify(dbaListings, null, 2));
+    store.setState({
+      startUrl,
+      origin,
+      source: preset
+        ? `Source: ${startUrl}. DBA preset follows each listing link and extracts its description. Next-page pagination is not preconfigured; use the agent to configure it when available.`
+        : `Source: ${startUrl}. Example selectors must be replaced for your website.`,
+    });
   })
-  .catch((error: unknown) => {
-    status.textContent = errorText(error);
-  });
-editor.addEventListener("input", () => {
-  validated = "";
-  run.disabled = true;
-});
+  .catch((error: unknown) => store.setState({ status: errorText(error) }));
+editor.addEventListener("input", () => store.editSpec(editor.value));
+goal.addEventListener("input", () => store.setState({ goal: goal.value }));
+model.addEventListener("change", () => store.setState({ model: model.value }));
 validate.addEventListener("click", () => {
   try {
-    const spec = parseSpec(editor.value, validateSelector);
-    if (!startUrl)
+    const state = store.getState();
+    const spec = parseSpec(state.spec, validateSelector);
+    if (!state.startUrl)
       throw new Error(
         "Source tab unavailable. Open the scraper from a marketplace tab.",
       );
-    validated = editor.value;
-    run.disabled = false;
-    status.textContent = `Valid: ${spec.name}. JSON and CSS syntax accepted; website matches are checked during execution. Approved origin: ${origin}.`;
+    store.setState({
+      validated: state.spec,
+      status: `Valid: ${spec.name}. JSON and CSS syntax accepted; website matches are checked during execution. Approved origin: ${state.origin}.`,
+    });
   } catch (error) {
-    validated = "";
-    run.disabled = true;
-    status.textContent = errorText(error);
+    store.setState({ validated: "", status: errorText(error) });
   }
 });
-run.addEventListener("click", () => {
-  if (!validated || validated !== editor.value || controller) return;
-  const spec = parseSpec(validated, validateSelector);
-  controller = new AbortController();
-  const active = controller;
-  run.disabled = true;
-  validate.disabled = true;
-  editor.disabled = true;
-  stop.disabled = false;
-  download.disabled = true;
-  generate.disabled = true;
-  loadModels.disabled = true;
-  model.disabled = true;
-  goal.disabled = true;
-  result = undefined;
-  results.textContent = "";
-  status.textContent = "Requesting site access…";
-  // Permission request must begin synchronously in the button's user gesture.
-  const permission = browser.permissions.request({ origins: [`${origin}/*`] });
+function execute(generating: boolean) {
+  const state = store.getState();
+  if (state.busy || !state.startUrl) return;
+  if (generating && (!state.model || !state.goal.trim())) {
+    store.setState({ status: "Describe the data you want to scrape." });
+    return;
+  }
+  if (!generating && scraperControls(state).run) return;
+  // Start permissions synchronously inside the user gesture, before any await.
+  const permission = browser.permissions.request({
+    origins: [`${state.origin}/*`],
+    ...(generating
+      ? { data_collection: ["websiteContent", "browsingActivity"] as const }
+      : {}),
+  });
+  const active = new AbortController();
+  controller = active;
+  store.begin(generating ? "generating" : "scraping");
+  store.setState({ status: "Requesting site access…" });
   void (async () => {
     let opened = false;
     try {
@@ -137,54 +163,94 @@ run.addEventListener("click", () => {
         throw new Error(worker?.error ?? "Worker unavailable.");
       opened = true;
       if (
-        worker.origin !== origin ||
-        navigationUrl(worker.startUrl, startUrl, origin) !== startUrl
+        worker.origin !== state.origin ||
+        navigationUrl(worker.startUrl, state.startUrl, state.origin) !==
+          state.startUrl
       )
         throw new Error(
           "Source tab changed. Reopen the scraper from the desired page.",
         );
-      result = await runScraper(
-        spec,
-        startUrl,
-        browserDriver(worker.tab, origin),
-        active.signal,
-        (p) => {
-          status.textContent = `${p.phase}: ${p.items} items; ${p.visits} document visits. ${p.url}`;
-        },
-      );
-      results.textContent = resultJson(result);
-      status.textContent = `${result.status}: ${result.stopReason} ${result.items.length} items; ${result.pages.length} document visits.`;
-      download.disabled = false;
+      const driver = browserDriver(worker.tab, state.origin);
+      if (generating) {
+        const spec = await generateScraper(
+          state.goal.trim(),
+          state.startUrl,
+          driver,
+          async (input, signal) => {
+            signal.throwIfAborted();
+            const response = await browser.runtime.sendMessage({
+              type: "scraper.agent.turn",
+              model: state.model,
+              input,
+            });
+            signal.throwIfAborted();
+            if (!response?.ok)
+              throw new Error(response?.error ?? "Agent unavailable.");
+            return response;
+          },
+          active.signal,
+          (message) =>
+            store.setState((s) => ({
+              status: message,
+              log: s.log + message + "\n",
+            })),
+        );
+        active.signal.throwIfAborted();
+        const json = JSON.stringify(spec, null, 2);
+        store.setState({
+          spec: json,
+          validated: json,
+          status: `Generated and sample-tested: ${spec.name}. Review the JSON, then run the full scraper. See the agent log for test coverage.`,
+        });
+      } else {
+        const result = await runScraper(
+          parseSpec(state.validated, validateSelector),
+          state.startUrl,
+          driver,
+          active.signal,
+          (p) =>
+            store.setState({
+              status: `${p.phase}: ${p.items} items; ${p.visits} document visits. ${p.url}`,
+            }),
+        );
+        store.setState({
+          result,
+          status: `${result.status}: ${result.stopReason} ${result.items.length} items; ${result.pages.length} document visits.`,
+        });
+      }
     } catch (error) {
-      status.textContent = active.signal.aborted
-        ? "Cancelled."
-        : errorText(error);
+      store.setState({
+        status: active.signal.aborted
+          ? generating
+            ? "Generation cancelled."
+            : "Cancelled."
+          : errorText(error),
+      });
     } finally {
+      if (generating)
+        await browser.runtime
+          .sendMessage({ type: "scraper.agent.cancel" })
+          .catch(() => {});
       if (opened)
         await browser.runtime
           .sendMessage({ type: "scraper.worker.close" })
           .catch(() => {});
       controller = undefined;
-      stop.disabled = true;
-      validate.disabled = false;
-      editor.disabled = false;
-      run.disabled = !validated || validated !== editor.value;
-      loadModels.disabled = false;
-      model.disabled = !model.options.length;
-      goal.disabled = false;
-      generate.disabled = !model.value || !startUrl;
+      store.finish();
     }
   })();
-});
+}
+run.addEventListener("click", () => execute(false));
+generate.addEventListener("click", () => execute(true));
 stop.addEventListener("click", () => {
   controller?.abort();
   void browser.runtime
     .sendMessage({ type: "scraper.agent.cancel" })
     .catch(() => {});
-  stop.disabled = true;
-  status.textContent = "Cancelling…";
+  store.setState({ cancelling: true, status: "Cancelling…" });
 });
 window.addEventListener("pagehide", () => {
+  unsubscribe();
   controller?.abort();
   void browser.runtime
     .sendMessage({ type: "scraper.agent.cancel" })
@@ -194,12 +260,11 @@ window.addEventListener("pagehide", () => {
     .catch(() => {});
 });
 download.addEventListener("click", () => {
+  const { result } = store.getState();
   if (!result) return;
-  const blob = new Blob([resultJson(result)], {
-    type: "application/json",
-  });
+  const blob = new Blob([resultJson(result)], { type: "application/json" });
   if (blob.size > LIMITS.resultBytes + 500_000) {
-    status.textContent = "Result export exceeds engine limit.";
+    store.setState({ status: "Result export exceeds engine limit." });
     return;
   }
   const url = URL.createObjectURL(blob);
@@ -209,12 +274,9 @@ download.addEventListener("click", () => {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
-
 loadModels.addEventListener("click", () => {
-  if (controller) return;
-  loadModels.disabled = true;
-  generate.disabled = true;
-  status.textContent = "Loading available models…";
+  if (!store.begin("models")) return;
+  store.setState({ status: "Loading available models…" });
   void (async () => {
     try {
       const response = await browser.runtime.sendMessage({
@@ -222,116 +284,17 @@ loadModels.addEventListener("click", () => {
       });
       if (!response?.ok)
         throw new Error(response?.error ?? "Models unavailable.");
-      model.replaceChildren();
-      for (const choice of response.models) {
-        const option = document.createElement("option");
-        option.value = choice.id;
-        option.textContent = choice.name;
-        model.append(option);
-      }
-      status.textContent = model.options.length
-        ? "Describe the data you want, then generate a scraper."
-        : "No available models. Check Account settings.";
-    } catch (error) {
-      status.textContent = errorText(error);
-    } finally {
-      loadModels.disabled = false;
-      model.disabled = !model.options.length;
-      generate.disabled = !model.value || !startUrl;
-    }
-  })();
-});
-generate.addEventListener("click", () => {
-  if (controller || !startUrl || !model.value) return;
-  const request = goal.value.trim();
-  if (!request) {
-    status.textContent = "Describe the data you want to scrape.";
-    return;
-  }
-  // Firefox requires optional permission requests inside the user gesture.
-  const permission = browser.permissions.request({
-    origins: [`${origin}/*`],
-    data_collection: ["websiteContent", "browsingActivity"],
-  });
-  const active = new AbortController();
-  controller = active;
-  for (const control of [
-    generate,
-    loadModels,
-    model,
-    goal,
-    validate,
-    run,
-    editor,
-  ])
-    control.disabled = true;
-  stop.disabled = false;
-  agentLog.textContent = "";
-  status.textContent = "Requesting site access…";
-  void (async () => {
-    let opened = false;
-    try {
-      if (!(await permission)) throw new Error("Site access was declined.");
-      active.signal.throwIfAborted();
-      const worker = await browser.runtime.sendMessage({
-        type: "scraper.worker.open",
-        sourceTab,
+      store.setState({
+        models: response.models,
+        model: response.models[0]?.id ?? "",
+        status: response.models.length
+          ? "Describe the data you want, then generate a scraper."
+          : "No available models. Check Account settings.",
       });
-      if (!worker?.ok || typeof worker.tab !== "number")
-        throw new Error(worker?.error ?? "Worker unavailable.");
-      opened = true;
-      if (
-        worker.origin !== origin ||
-        navigationUrl(worker.startUrl, startUrl, origin) !== startUrl
-      )
-        throw new Error(
-          "Source tab changed. Reopen the scraper from the desired page.",
-        );
-      const spec = await generateScraper(
-        request,
-        startUrl,
-        browserDriver(worker.tab, origin),
-        async (input, signal) => {
-          signal.throwIfAborted();
-          const response = await browser.runtime.sendMessage({
-            type: "scraper.agent.turn",
-            model: model.value,
-            input,
-          });
-          signal.throwIfAborted();
-          if (!response?.ok)
-            throw new Error(response?.error ?? "Agent unavailable.");
-          return response;
-        },
-        active.signal,
-        (message) => {
-          status.textContent = message;
-          agentLog.textContent += message + "\n";
-        },
-      );
-      active.signal.throwIfAborted();
-      editor.value = JSON.stringify(spec, null, 2);
-      validated = editor.value;
-      status.textContent = `Generated and sample-tested: ${spec.name}. Review the JSON, then run the full scraper. See the agent log for test coverage.`;
     } catch (error) {
-      status.textContent = active.signal.aborted
-        ? "Generation cancelled."
-        : errorText(error);
+      store.setState({ status: errorText(error) });
     } finally {
-      await browser.runtime
-        .sendMessage({ type: "scraper.agent.cancel" })
-        .catch(() => {});
-      if (opened)
-        await browser.runtime
-          .sendMessage({ type: "scraper.worker.close" })
-          .catch(() => {});
-      controller = undefined;
-      for (const control of [loadModels, goal, validate, editor])
-        control.disabled = false;
-      model.disabled = !model.options.length;
-      generate.disabled = !model.value || !startUrl;
-      run.disabled = !validated || validated !== editor.value;
-      stop.disabled = true;
+      store.finish();
     }
   })();
 });

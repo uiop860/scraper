@@ -102,3 +102,5 @@ for synthetic redirect and encrypted-storage checks in a temporary Firefox profi
 [authentication notes](docs/authentication.md) for security boundaries, limitations,
 and manual verification steps. The starter's earlier no-data declaration has been
 replaced with `authenticationInfo`; no scraped page data is sent by this prototype.
+
+See [application state](docs/state.md) for the Zustand stores and extension context boundaries.
