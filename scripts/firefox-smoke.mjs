@@ -8,7 +8,7 @@ import { build } from "esbuild";
 // or using an OpenAI account. The fixture is never packaged with the extension.
 const directory = await mkdtemp(join(tmpdir(), "scraper-firefox-"));
 try {
-  await cp("build", directory, { recursive: true });
+  await cp(".output/firefox-mv3", directory, { recursive: true });
   const manifest = JSON.parse(
     await readFile(join(directory, "manifest.json"), "utf8"),
   );
@@ -16,6 +16,7 @@ try {
   delete manifest.content_scripts;
   delete manifest.options_ui;
   delete manifest.action;
+  delete manifest.sidebar_action;
   await writeFile(join(directory, "manifest.json"), JSON.stringify(manifest));
   const fixture = await build({
     stdin: {
@@ -26,8 +27,9 @@ try {
       let tabId;
       const attempt = { state: "synthetic", nonce: "test", verifier: "test" };
       browser.runtime.onMessage.addListener(async (message, sender) => {
+        if (message.type !== "callback") return;
         try {
-          if (sender.tab?.id !== tabId || sender.url !== browser.runtime.getURL("callback.html")) throw new Error("Wrong callback sender");
+          if (sender.tab?.id !== tabId || sender.url?.split("#")[0] !== browser.runtime.getURL("callback.html")) throw new Error("Wrong callback sender: " + JSON.stringify({expectedTab:tabId, tab:sender.tab?.id, url:sender.url}));
           parseCallback(message.url, attempt);
           const originalFetch = globalThis.fetch;
           try {
@@ -41,7 +43,7 @@ try {
           await browser.declarativeNetRequest.updateSessionRules({ removeRuleIds: [1] });
           dump("SCRAPER_FIREFOX_PASS\\n");
           return { ok: true };
-        } catch { dump("SCRAPER_FIREFOX_FAIL\\n"); return { ok: false }; }
+        } catch (error) { dump("SCRAPER_FIREFOX_FAIL " + error.message + "\\n"); return { ok: false }; }
       });
       (async () => {
         const store = new CredentialStore();
@@ -75,7 +77,7 @@ try {
         tabId = tab.id;
         await browser.declarativeNetRequest.updateSessionRules({ addRules: [callbackRule(tabId, browser.runtime.getURL("callback.html"))] });
         await browser.tabs.update(tabId, { url: REDIRECT + "?state=synthetic&code=synthetic&client_id=oaiapp_synthetic" });
-      })().catch(() => dump("SCRAPER_FIREFOX_FAIL\\n"));
+      })().catch((error) => dump("SCRAPER_FIREFOX_FAIL " + error.message + "\\n"));
     `,
       resolveDir: process.cwd(),
       loader: "ts",
@@ -111,7 +113,7 @@ try {
       }
       if (output.includes("SCRAPER_FIREFOX_FAIL")) {
         clearTimeout(timer);
-        resolve(false);
+        reject(new Error(output.slice(-4000)));
       }
     };
     child.stdout.on("data", observe);

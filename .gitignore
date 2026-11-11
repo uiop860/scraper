@@ -5,3 +5,6 @@
 /.mise/
 .DS_Store
 /.firefox-profile/
+
+.wxt/
+.output/

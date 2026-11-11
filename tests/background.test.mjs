@@ -137,7 +137,7 @@ async function harness(initial = {}) {
       );
     throw new Error("Unexpected fetch");
   };
-  await import(`${source}#${crypto.randomUUID()}`);
+  (await import(`${source}#${crypto.randomUUID()}`)).registerBackground();
   const sender = {
     id: "scraper",
     url: "moz-extension://scraper/settings.html",
@@ -145,7 +145,7 @@ async function harness(initial = {}) {
     frameId: 0,
   };
   const send = (message, from = sender) => listener(message, from);
-  const complete = (params = {}, tabId = 42) =>
+  const complete = (params = {}, tabId = 42, fragment = "") =>
     send(
       {
         type: "callback",
@@ -153,7 +153,7 @@ async function harness(initial = {}) {
       },
       {
         ...sender,
-        url: "moz-extension://scraper/callback.html",
+        url: `moz-extension://scraper/callback.html${fragment}`,
         tab: { id: tabId },
       },
     );
@@ -162,7 +162,7 @@ async function harness(initial = {}) {
     async restart(browserRestart = false) {
       if (browserRestart)
         for (const key of Object.keys(sessionData)) delete sessionData[key];
-      await import(`${source}#${crypto.randomUUID()}`);
+      (await import(`${source}#${crypto.randomUUID()}`)).registerBackground();
     },
     stored,
     rules,
@@ -459,6 +459,20 @@ test("locked reset and strict message/private browsing boundaries", async () => 
     assert.equal((await h.send({ type: "login", clientId: 42 })).ok, false);
     assert.equal((await h.send({ type: "logout" })).ok, true);
     assert.equal((await h.send({ type: "status" })).configured, false);
+  } finally {
+    await h.close();
+  }
+});
+
+test("callback sender may retain its original fragment after history replacement", async () => {
+  const h = await harness();
+  try {
+    await h.send({ type: "login" });
+    assert.equal(
+      (await h.complete({}, 42, "#original-callback-fragment")).ok,
+      true,
+    );
+    assert.equal((await h.send({ type: "status" })).signedIn, true);
   } finally {
     await h.close();
   }

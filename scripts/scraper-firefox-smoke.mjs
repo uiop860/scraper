@@ -43,11 +43,13 @@ const origin = `http://127.0.0.1:${server.address().port}`;
 const directory = await mkdtemp(join(tmpdir(), "scraper-engine-firefox-"));
 let child;
 try {
-  await cp("build", directory, { recursive: true });
+  await cp(".output/firefox-mv3", directory, { recursive: true });
   const manifest = JSON.parse(
     await readFile(join(directory, "manifest.json"), "utf8"),
   );
   manifest.host_permissions.push(`${origin}/*`);
+  // This fixture replaces scraper.html with its own runner, not the sidebar UI.
+  delete manifest.sidebar_action;
   manifest.background.scripts = ["smoke-background.js"];
   await writeFile(join(directory, "manifest.json"), JSON.stringify(manifest));
   async function compile(contents, name) {
@@ -62,7 +64,8 @@ try {
   }
   await compile(
     `
-    import './extension/background';
+    import { registerBackground } from './extension/background';
+    registerBackground();
     browser.runtime.onMessage.addListener((message) => {
       if (message.type === 'smoke.result') dump('SCRAPER_ENGINE_' + message.result + '\\n');
     });
@@ -131,6 +134,10 @@ try {
     })().catch(async error => { console.error(error); await browser.runtime.sendMessage({type:'smoke.result',result:'FAIL ' + error.message}); });
   `,
     "scraper.js",
+  );
+  await writeFile(
+    join(directory, "scraper.html"),
+    '<!doctype html><script src="scraper.js"></script>',
   );
   child = spawn(
     "web-ext",

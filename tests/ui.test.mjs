@@ -78,6 +78,7 @@ async function mount(
     platform: "browser",
     target: "es2022",
     define: { "process.env.NODE_ENV": '"production"' },
+    loader: { ".css": "empty" },
     write: false,
   });
   const temporary = await mkdtemp(join(tmpdir(), "scraper-react-ui-"));
@@ -103,7 +104,7 @@ async function mount(
 test("React settings load account state, load models, test the selection, and sign out", async () => {
   let signedIn = true;
   const requests = [];
-  const h = await mount("extension/settings.tsx", {
+  const h = await mount("extension/entrypoints/settings/main.tsx", {
     runtime: {
       async sendMessage(message) {
         requests.push(message);
@@ -166,7 +167,7 @@ test("React callback removes the secret fragment and relays it exactly once", as
   const requests = [];
   const response = Promise.withResolvers();
   const h = await mount(
-    "extension/callback.tsx",
+    "extension/entrypoints/callback/main.tsx",
     {
       runtime: {
         sendMessage(message) {
@@ -206,7 +207,7 @@ test("React sidebar follows active pages and cleans up browser subscriptions", a
   const permissions = [];
   let allow = false;
   const h = await mount(
-    "extension/scraper.tsx",
+    "extension/entrypoints/scraper/main.tsx",
     {
       permissions: {
         request(permission) {
@@ -304,7 +305,7 @@ test("React sidebar follows active pages and cleans up browser subscriptions", a
 
 test("React callback handles an immediately rejected background relay", async () => {
   const h = await mount(
-    "extension/callback.tsx",
+    "extension/entrypoints/callback/main.tsx",
     {
       runtime: { sendMessage: () => Promise.reject(new Error("Disconnected")) },
     },

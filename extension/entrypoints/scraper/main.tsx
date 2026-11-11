@@ -1,13 +1,14 @@
+import "./style.css";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { mountPage } from "./ui/root";
+import { mountPage } from "../../ui/root";
 import type { ThreadMessageLike } from "@assistant-ui/react";
-import { Chat } from "./scraper/chat";
-import { validateSelector } from "./scraper/selectors";
-import { generateScraper } from "./scraper/agent";
-import { dbaListings } from "./scraper/dba";
-import { LIMITS, navigationUrl, parseSpec } from "./scraper/spec";
-import { browserDriver } from "./scraper/browser";
-import { runScraper, resultJson, type Result } from "./scraper/runner";
+import { Chat } from "../../scraper/chat";
+import { validateSelector } from "../../scraper/selectors";
+import { generateScraper } from "../../scraper/agent";
+import { dbaListings } from "../../scraper/dba";
+import { LIMITS, navigationUrl, parseSpec } from "../../scraper/spec";
+import { browserDriver } from "../../scraper/browser";
+import { runScraper, resultJson, type Result } from "../../scraper/runner";
 
 const example = JSON.stringify(
   {

@@ -1,3 +1,4 @@
+import "./style.css";
 import {
   useCallback,
   useEffect,
@@ -5,8 +6,8 @@ import {
   useState,
   type FormEvent,
 } from "react";
-import { mountPage } from "./ui/root";
-import { record } from "./auth/protocol";
+import { mountPage } from "../../ui/root";
+import { record } from "../../auth/protocol";
 
 type Choice = { id: string; name: string };
 type Account = { clientId: string; label: string };

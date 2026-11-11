@@ -1,6 +1,6 @@
 import type OpenAI from "openai";
 import { toResponseInputItems } from "openai/lib/responses/ResponseInputItems";
-import { z } from "zod";
+import { z } from "./schema";
 import { navigationUrl, parseSpec, specSchema, type Spec } from "./spec";
 import type { PageDriver } from "./runner";
 import type { inspectPage } from "./inspect";
