@@ -1,13 +1,13 @@
-import assert from "node:assert/strict";
-import { test } from "node:test";
+import type { MockData } from "./mock-types.ts";
+import { assert, expect, test } from "vitest";
 import { IDBFactory } from "fake-indexeddb";
-import { bundle } from "./helpers.mjs";
-const { CredentialStore, database, importSessionKey } = await import(
-  await bundle("extension/auth/storage.ts")
-);
-const { Authentication } = await import(
-  await bundle("extension/auth/lifecycle.ts")
-);
+import {
+  CredentialStore,
+  database,
+  importSessionKey,
+} from "../extension/auth/storage.ts";
+import { Authentication } from "../extension/auth/lifecycle.ts";
+type Envelope = NonNullable<Parameters<typeof database>[0]>;
 const credential = {
   registration: { clientId: "client", subject: "user" },
   refreshToken: "SECRET_REFRESH",
@@ -22,8 +22,8 @@ const tokens = {
 };
 function setup() {
   globalThis.indexedDB = new IDBFactory();
-  const data = {};
-  const local = {
+  const data: MockData = {};
+  const local: MockData = {
     hostId: "host",
     registrations: ["account"],
     scraperConfig: { name: "keep" },
@@ -31,75 +31,81 @@ function setup() {
   globalThis.browser = {
     storage: {
       session: {
-        async get(key) {
+        async get(key: string) {
           return { [key]: structuredClone(data[key]) };
         },
-        async set(value) {
+        async set(value: MockData) {
           Object.assign(data, structuredClone(value));
         },
-        async remove(key) {
+        async remove(key: string) {
           delete data[key];
         },
       },
       local: {
-        async remove(keys) {
+        async remove(keys: string[]) {
           for (const key of keys) delete local[key];
         },
       },
     },
-  };
+  } as unknown as typeof browser;
   return { data, local };
 }
 test("AES-GCM persistence, nonextractable key, random IVs, PIN unlock and complete cleanup", async () => {
   const { data, local } = setup();
   let store = new CredentialStore();
-  await assert.rejects(store.unlock("abc"), /four digits/);
+  await expect(store.unlock("abc")).rejects.toThrow(/four digits/);
   await store.unlock("1234");
   await store.save(credential, tokens);
-  const first = await database();
+  const first = (await database()) as Envelope;
   assert.ok(!JSON.stringify(first).includes("SECRET"));
-  assert.equal(first.iv.length, 12);
-  assert.equal(first.salt.length, 16);
-  assert.equal(first.key, undefined);
+  assert.strictEqual(first.iv.length, 12);
+  assert.strictEqual(first.salt.length, 16);
+  assert.strictEqual("key" in first ? first.key : undefined, undefined);
   const key = await importSessionKey(data.scraperAuth.bytes);
-  assert.equal(key.extractable, false);
-  await assert.rejects(crypto.subtle.exportKey("raw", key));
+  assert.strictEqual(key.extractable, false);
+  await expect(crypto.subtle.exportKey("raw", key)).rejects.toThrow();
   const clone = structuredClone(key);
-  assert.equal(clone.extractable, false);
+  assert.strictEqual(clone.extractable, false);
   await store.save({ ...credential, refreshToken: "ROTATED" }, tokens);
-  assert.notDeepEqual((await database()).iv, first.iv);
+  assert.notDeepEqual(((await database()) as Envelope).iv, first.iv);
   store = new CredentialStore();
-  assert.equal((await store.status()).tokens.accessToken, "SECRET_ACCESS");
-  assert.equal(data.scraperAuth.tokens.idToken, undefined);
-  assert.equal(data.scraperAuth.tokens.refreshToken, undefined);
+  assert.strictEqual(
+    (await store.status()).tokens!.accessToken,
+    "SECRET_ACCESS",
+  );
+  assert.strictEqual(data.scraperAuth.tokens.idToken, undefined);
+  assert.strictEqual(data.scraperAuth.tokens.refreshToken, undefined);
   delete data.scraperAuth;
   store = new CredentialStore();
-  assert.equal((await store.status()).locked, true);
-  await assert.rejects(store.unlock("9999"), /Incorrect PIN/);
-  await assert.rejects(store.unlock("1234"), /Wait/);
+  assert.strictEqual((await store.status()).locked, true);
+  await expect(store.unlock("9999")).rejects.toThrow(/Incorrect PIN/);
+  await expect(store.unlock("1234")).rejects.toThrow(/Wait/);
   store = new CredentialStore();
   await store.unlock("1234");
-  assert.equal((await store.status()).credential.refreshToken, "ROTATED");
+  assert.strictEqual(
+    (await store.status()).credential!.refreshToken,
+    "ROTATED",
+  );
   await store.clear();
-  assert.equal(await database(), undefined);
-  assert.deepEqual(data, {});
-  assert.deepEqual(local, { scraperConfig: { name: "keep" } });
+  assert.strictEqual(await database(), undefined);
+  assert.deepStrictEqual(data, {});
+  assert.deepStrictEqual(local, { scraperConfig: { name: "keep" } });
 });
 test("corrupted ciphertext and invalid envelopes fail closed and remain resettable", async () => {
   const { data } = setup();
   const store = new CredentialStore();
   await store.unlock("1234");
   await store.save(credential, tokens);
-  const envelope = await database();
-  new Uint8Array(envelope.ciphertext)[0] ^= 1;
+  const envelope = (await database()) as Envelope;
+  new Uint8Array(envelope.ciphertext)[0]! ^= 1;
   await database(envelope);
   delete data.scraperAuth;
   const restarted = new CredentialStore();
-  await assert.rejects(restarted.unlock("1234"), /damaged/);
-  await database({ ...envelope, version: 42 });
-  await assert.rejects(restarted.status(), /damaged/);
+  await expect(restarted.unlock("1234")).rejects.toThrow(/damaged/);
+  await database({ ...envelope, version: 42 } as unknown as Envelope);
+  await expect(restarted.status()).rejects.toThrow(/damaged/);
   await restarted.clear();
-  assert.equal((await restarted.status()).configured, false);
+  assert.strictEqual((await restarted.status()).configured, false);
 });
 test("concurrent refresh, rotation, network retry, invalid grant and logout race", async () => {
   setup();
@@ -114,8 +120,8 @@ test("concurrent refresh, rotation, network retry, invalid grant and logout race
   let calls = 0;
   globalThis.fetch = async (_url, init) => {
     calls++;
-    assert.equal(
-      new URLSearchParams(init.body).get("refresh_token"),
+    assert.strictEqual(
+      new URLSearchParams(init!.body as string).get("refresh_token"),
       "SECRET_REFRESH",
     );
     return Response.json({
@@ -129,37 +135,37 @@ test("concurrent refresh, rotation, network retry, invalid grant and logout race
     const results = await Promise.all(
       Array.from({ length: 8 }, () => auth.credentials()),
     );
-    assert.equal(calls, 1);
+    assert.strictEqual(calls, 1);
     assert.ok(results.every((t) => t.accessToken === "NEW"));
-    assert.equal(
-      (await auth.store.status()).credential.refreshToken,
+    assert.strictEqual(
+      (await auth.store.status()).credential!.refreshToken,
       "ROTATED",
     );
-    auth.invalidateAccess(results[0]);
+    auth.invalidateAccess(results[0]!);
     globalThis.fetch = async () => {
       calls++;
       throw new TypeError("SECRET network failure");
     };
-    await assert.rejects(auth.credentials(), /Request cancelled/);
-    assert.equal((await auth.status()).signedIn, true);
-    await assert.rejects(auth.credentials(), /Retry shortly/);
-    assert.equal(calls, 2);
+    await expect(auth.credentials()).rejects.toThrow(/Request cancelled/);
+    assert.strictEqual((await auth.status()).signedIn, true);
+    await expect(auth.credentials()).rejects.toThrow(/Retry shortly/);
+    assert.strictEqual(calls, 2);
     // Restart discards transient backoff but retains current refresh credentials.
     await globalThis.browser.storage.session.remove("scraperAuth");
     const restarted = new Authentication();
     await restarted.unlock("1234");
     globalThis.fetch = async () =>
       new Response("SECRET invalid grant", { status: 400 });
-    await assert.rejects(restarted.credentials(), /HTTP 400/);
-    assert.equal((await restarted.status()).configured, false);
+    await expect(restarted.credentials()).rejects.toThrow(/HTTP 400/);
+    assert.strictEqual((await restarted.status()).configured, false);
     await restarted.unlock("4321");
     await restarted.accept(
       credential.registration,
       { ...tokens, expiresAt: 0 },
       new AbortController().signal,
     );
-    const entered = Promise.withResolvers();
-    const delayed = Promise.withResolvers();
+    const entered = Promise.withResolvers<void>();
+    const delayed = Promise.withResolvers<Response>();
     globalThis.fetch = async () => {
       entered.resolve();
       return delayed.promise;
@@ -175,9 +181,9 @@ test("concurrent refresh, rotation, network retry, invalid grant and logout race
         token_type: "Bearer",
       }),
     );
-    await assert.rejects(refresh);
-    assert.equal((await restarted.status()).configured, false);
-    assert.equal(await database(), undefined);
+    await expect(refresh).rejects.toThrow();
+    assert.strictEqual((await restarted.status()).configured, false);
+    assert.strictEqual(await database(), undefined);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -212,19 +218,19 @@ test("failed persistence retries saving rotated token without a duplicate exchan
     });
   };
   try {
-    await assert.rejects(auth.credentials(), /disk failure/);
+    await expect(auth.credentials()).rejects.toThrow(/disk failure/);
     // Save ROTATED before retrying validation of the retained token response.
-    await assert.rejects(auth.credentials(), /Retry shortly/);
-    assert.equal(
-      (await auth.store.status()).credential.refreshToken,
+    await expect(auth.credentials()).rejects.toThrow(/Retry shortly/);
+    assert.strictEqual(
+      (await auth.store.status()).credential!.refreshToken,
       "ROTATED",
     );
-    assert.equal(calls, 1);
+    assert.strictEqual(calls, 1);
     const now = Date.now;
     try {
       Date.now = () => now() + 6000;
-      assert.equal((await auth.credentials()).accessToken, "NEW");
-      assert.equal(calls, 1);
+      assert.strictEqual((await auth.credentials()).accessToken, "NEW");
+      assert.strictEqual(calls, 1);
     } finally {
       Date.now = now;
     }
@@ -243,17 +249,17 @@ test("rotation committed before interrupted session caching restores latest refr
   globalThis.browser.storage.session.set = async () => {
     throw new Error("cache interrupted");
   };
-  await assert.rejects(
+  await expect(
     store.save(
       { ...credential, refreshToken: "ROTATED" },
       { ...tokens, accessToken: "NEW" },
     ),
-  );
+  ).rejects.toThrow();
   globalThis.browser.storage.session.set = set;
   const restored = await new CredentialStore().status();
-  assert.equal(restored.locked, false);
-  assert.equal(restored.credential.refreshToken, "ROTATED");
-  assert.equal(restored.tokens, undefined); // old cache cannot override durable rotation
+  assert.strictEqual(restored.locked, false);
+  assert.strictEqual(restored.credential!.refreshToken, "ROTATED");
+  assert.strictEqual(restored.tokens, undefined); // old cache cannot override durable rotation
   await store.clear();
 });
 
@@ -265,9 +271,9 @@ test("logout during PIN derivation clears any late setup write", async () => {
   const clearing = store.clear();
   await unlocking;
   await clearing;
-  assert.equal(await database(), undefined);
-  assert.equal((await store.status()).configured, false);
-  assert.deepEqual(
+  assert.strictEqual(await database(), undefined);
+  assert.strictEqual((await store.status()).configured, false);
+  assert.deepStrictEqual(
     (await globalThis.browser.storage.session.get("scraperAuth")).scraperAuth,
     undefined,
   );
@@ -283,8 +289,8 @@ test("account switch cannot be overwritten by a late refresh response", async ()
     new AbortController().signal,
   );
   const originalFetch = globalThis.fetch;
-  const entered = Promise.withResolvers();
-  const delayed = Promise.withResolvers();
+  const entered = Promise.withResolvers<void>();
+  const delayed = Promise.withResolvers<Response>();
   globalThis.fetch = async () => {
     entered.resolve();
     return delayed.promise;
@@ -305,9 +311,12 @@ test("account switch cannot be overwritten by a late refresh response", async ()
         expires_in: 3600,
       }),
     );
-    await assert.rejects(refreshing);
-    assert.equal((await auth.status()).account.subject, "other");
-    assert.equal((await auth.store.status()).credential.refreshToken, "OTHER");
+    await expect(refreshing).rejects.toThrow();
+    assert.strictEqual((await auth.status()).account!.subject, "other");
+    assert.strictEqual(
+      (await auth.store.status()).credential!.refreshToken,
+      "OTHER",
+    );
   } finally {
     globalThis.fetch = originalFetch;
     await auth.clear();
@@ -319,8 +328,8 @@ test("cancelled login during persistence cannot restore the committed credential
   const auth = new Authentication();
   await auth.unlock("1234");
   const save = auth.store.save.bind(auth.store);
-  const saved = Promise.withResolvers();
-  const finish = Promise.withResolvers();
+  const saved = Promise.withResolvers<void>();
+  const finish = Promise.withResolvers<void>();
   auth.store.save = async (...args) => {
     await save(...args);
     saved.resolve();
@@ -335,7 +344,7 @@ test("cancelled login during persistence cannot restore the committed credential
   await saved.promise;
   controller.abort();
   finish.resolve();
-  await assert.rejects(accepting);
-  assert.equal((await auth.status()).signedIn, false);
-  assert.equal(await database(), undefined);
+  await expect(accepting).rejects.toThrow();
+  assert.strictEqual((await auth.status()).signedIn, false);
+  assert.strictEqual(await database(), undefined);
 });

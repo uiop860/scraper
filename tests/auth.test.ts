@@ -1,27 +1,29 @@
-import assert from "node:assert/strict";
-import { test } from "node:test";
+import { assert, expect, test } from "vitest";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { Stream } from "openai/core/streaming";
-import { protocol as p } from "./helpers.mjs";
+import * as p from "../extension/auth/protocol.ts";
 const attempt = { state: "state", nonce: "nonce", verifier: "verifier" };
-const callback = (params) =>
+const callback = (params: Record<string, string> = {}) =>
   `${p.REDIRECT}?${new URLSearchParams({ state: "state", code: "code", client_id: "oaiapp_test", ...params })}`;
 
 test("PKCE matches RFC 7636 S256 test vector", async () => {
-  assert.equal(
+  assert.strictEqual(
     await p.challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
     "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
   );
 });
 test("new and returning authorization use documented loopback contract", async () => {
   const url = new URL(await p.authorizationUrl(attempt, "urn:uuid:test"));
-  assert.equal(url.origin + url.pathname, `${p.ISSUER}/api/accounts/authorize`);
-  assert.equal(url.searchParams.get("client_id"), "dynamic_agent_client");
-  assert.equal(url.searchParams.get("redirect_uri"), p.REDIRECT);
-  assert.equal(url.searchParams.get("resource"), p.RESOURCE);
-  assert.equal(url.searchParams.get("nonce"), "nonce");
+  assert.strictEqual(
+    url.origin + url.pathname,
+    `${p.ISSUER}/api/accounts/authorize`,
+  );
+  assert.strictEqual(url.searchParams.get("client_id"), "dynamic_agent_client");
+  assert.strictEqual(url.searchParams.get("redirect_uri"), p.REDIRECT);
+  assert.strictEqual(url.searchParams.get("resource"), p.RESOURCE);
+  assert.strictEqual(url.searchParams.get("nonce"), "nonce");
   assert.ok(
-    url.searchParams.get("scope").includes("chatgpt.tokens.use.direct"),
+    url.searchParams.get("scope")!.includes("chatgpt.tokens.use.direct"),
   );
   const returning = new URL(
     await p.authorizationUrl(
@@ -29,11 +31,11 @@ test("new and returning authorization use documented loopback contract", async (
       "host",
     ),
   );
-  assert.equal(returning.searchParams.get("client_id"), "saved");
-  assert.equal(returning.searchParams.has("agent_name_hint"), false);
+  assert.strictEqual(returning.searchParams.get("client_id"), "saved");
+  assert.strictEqual(returning.searchParams.has("agent_name_hint"), false);
 });
 test("callback rejects wrong state, duplicate parameters, alternate destinations and client substitution", () => {
-  assert.deepEqual(p.parseCallback(callback({}), attempt), {
+  assert.deepStrictEqual(p.parseCallback(callback({}), attempt), {
     code: "code",
     clientId: "oaiapp_test",
   });
@@ -58,9 +60,9 @@ test("callback rejects wrong state, duplicate parameters, alternate destinations
 });
 test("rule only targets the exact callback and login tab", () => {
   const rule = p.callbackRule(42, "moz-extension://test/callback.html");
-  assert.deepEqual(rule.condition.tabIds, [42]);
-  assert.deepEqual(rule.condition.resourceTypes, ["main_frame"]);
-  const pattern = new RegExp(rule.condition.regexFilter);
+  assert.deepStrictEqual(rule.condition.tabIds, [42]);
+  assert.deepStrictEqual(rule.condition.resourceTypes, ["main_frame"]);
+  const pattern = new RegExp(rule.condition.regexFilter!);
   assert.ok(pattern.test(callback({})));
   for (const url of [
     "http://localhost:1455/auth/callback",
@@ -68,14 +70,14 @@ test("rule only targets the exact callback and login tab", () => {
     "http://127.0.0.1:1455/auth/callback/extra",
     "https://evil.test/" + p.REDIRECT,
   ])
-    assert.equal(pattern.test(url), false);
+    assert.strictEqual(pattern.test(url), false);
 });
 test("ID tokens require trusted signature, issuer, audience, expiry, nonce and matching identity", async () => {
   const { publicKey, privateKey } = await generateKeyPair("RS256");
   const keys = {
     keys: [{ ...(await exportJWK(publicKey)), kid: "test", alg: "RS256" }],
   };
-  const sign = (claims = {}, key = privateKey) =>
+  const sign = (claims: import("jose").JWTPayload = {}, key = privateKey) =>
     new SignJWT({ nonce: "nonce", email: "test@example.test", ...claims })
       .setProtectedHeader({ alg: "RS256", kid: "test" })
       .setIssuer(p.ISSUER)
@@ -85,22 +87,26 @@ test("ID tokens require trusted signature, issuer, audience, expiry, nonce and m
       .setExpirationTime(claims.exp ?? "5m")
       .sign(key);
   const token = await sign();
-  assert.equal(
+  assert.strictEqual(
     (await p.verifyIdentity(token, keys, "client", "nonce")).subject,
     "user",
   );
-  await assert.rejects(p.verifyIdentity(token, keys, "wrong", "nonce"));
-  await assert.rejects(p.verifyIdentity(token, keys, "client", "wrong"));
-  await assert.rejects(
+  await expect(
+    p.verifyIdentity(token, keys, "wrong", "nonce"),
+  ).rejects.toThrow();
+  await expect(
+    p.verifyIdentity(token, keys, "client", "wrong"),
+  ).rejects.toThrow();
+  await expect(
     p.verifyIdentity(token, keys, "client", "nonce", "other"),
-  );
-  await assert.rejects(
+  ).rejects.toThrow();
+  await expect(
     p.verifyIdentity(await sign({ exp: 1 }), keys, "client", "nonce"),
-  );
+  ).rejects.toThrow();
   const other = await generateKeyPair("RS256");
-  await assert.rejects(
+  await expect(
     p.verifyIdentity(await sign({}, other.privateKey), keys, "client", "nonce"),
-  );
+  ).rejects.toThrow();
 });
 test("token parsing rotates refresh tokens and preserves omitted refresh grant scopes", () => {
   const first = p.parseTokens({
@@ -119,9 +125,9 @@ test("token parsing rotates refresh tokens and preserves omitted refresh grant s
     },
     first,
   );
-  assert.equal(refreshed.refreshToken, "r2");
-  assert.deepEqual(refreshed.scopes, first.scopes);
-  assert.equal(
+  assert.strictEqual(refreshed.refreshToken, "r2");
+  assert.deepStrictEqual(refreshed.scopes, first.scopes);
+  assert.strictEqual(
     p.parseTokens(
       { access_token: "c", token_type: "Bearer", expires_in: 1 },
       refreshed,
@@ -137,7 +143,7 @@ test("token parsing rotates refresh tokens and preserves omitted refresh grant s
     }),
   );
 });
-function stream(events) {
+function stream(events: unknown[]) {
   const bytes = new TextEncoder().encode(
     events.map((event) => `data: ${JSON.stringify(event)}\r\n\r\n`).join(""),
   );
@@ -150,7 +156,7 @@ function stream(events) {
   });
 }
 test("SSE handles split UTF-8 and requires successful terminal completion", async () => {
-  assert.equal(
+  assert.strictEqual(
     await readResponse(
       stream([
         { type: "response.output_text.delta", delta: "Héllo" },
@@ -160,15 +166,15 @@ test("SSE handles split UTF-8 and requires successful terminal completion", asyn
     "Héllo",
   );
   for (const type of ["response.failed", "response.incomplete", "error"])
-    await assert.rejects(readResponse(stream([{ type }])));
-  await assert.rejects(
+    await expect(readResponse(stream([{ type }]))).rejects.toThrow();
+  await expect(
     readResponse(
       stream([{ type: "response.output_text.delta", delta: "partial" }]),
     ),
-  );
+  ).rejects.toThrow();
 });
 
-function readResponse(body) {
+function readResponse(body: ReadableStream<Uint8Array>) {
   return p.collectResponse(
     Stream.fromSSEResponse(new Response(body), new AbortController()),
   );

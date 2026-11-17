@@ -49,10 +49,13 @@ For manual loading, run `mise run compile`, then select `.output/firefox-mv3/man
 | `mise run install`   | Install locked project dependencies                         |
 | `mise run dev`       | Run WXT with React hot reload in Firefox                    |
 | `mise run compile`   | Build Firefox MV3 with WXT into `.output/firefox-mv3/`      |
+| `mise run test`      | Run TypeScript tests with Vitest                            |
 | `mise run typecheck` | Run strict TypeScript checking                              |
 | `mise run lint`      | Check types, ESLint, Prettier formatting, and Mozilla rules |
 | `mise run format`    | Apply Prettier formatting                                   |
 | `mise run build`     | Run all checks and create an extension ZIP in `.output/`    |
+
+`mise run test` runs the TypeScript suite with Vitest in isolated Node processes. Tests import source modules directly; restart and React page harnesses use esbuild bundles when fresh module instances are needed. `mise run typecheck` checks both extension code and tests; Vitest transforms TypeScript without checking types.
 
 ESLint checks JavaScript tooling and TypeScript extension code with recommended rules. Prettier handles formatting independently. Generated files and dependencies are excluded from both. Mozilla manifest and validation errors fail lint; upstream React `innerHTML` and Zod dynamic-compiler warnings remain visible without failing the task. Application code renders page data as React text, and Zod JIT compilation is disabled for extension CSP compatibility.
 

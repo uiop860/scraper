@@ -1,9 +1,12 @@
-import assert from "node:assert/strict";
-import { test } from "node:test";
-import { bundle } from "./helpers.mjs";
-const { testModel } = await import(await bundle("extension/auth/client.ts"));
-const tokens = { accessToken: "PRIVATE_TOKEN" };
-const event = (value) =>
+import type { MockData } from "./mock-types.ts";
+import { assert, expect, test } from "vitest";
+import { testModel } from "../extension/auth/client.ts";
+const tokens = {
+  accessToken: "PRIVATE_TOKEN",
+  expiresAt: Date.now() + 3600000,
+  scopes: [],
+};
+const event = (value: MockData) =>
   `event: ${value.type}\ndata: ${JSON.stringify(value)}\n\n`;
 // Minimized reproduction of the user's successful response: metadata can appear
 // between text deltas and the terminal event. No real account identifiers stored.
@@ -24,22 +27,22 @@ test("SDK consumes valid SSE regardless of missing or mismatched media type", as
       "TEXT/EVENT-STREAM; charset=utf-8",
     ]) {
       globalThis.fetch = async (url, init) => {
-        assert.equal(String(url), "https://api.openai.com/v1/responses");
-        assert.equal(
-          new Headers(init.headers).get("authorization"),
+        assert.strictEqual(String(url), "https://api.openai.com/v1/responses");
+        assert.strictEqual(
+          new Headers(init!.headers).get("authorization"),
           "Bearer PRIVATE_TOKEN",
         );
-        assert.equal(init.credentials, "omit");
-        assert.equal(init.redirect, "error");
-        const body = JSON.parse(init.body);
-        assert.equal(body.stream, true);
-        assert.equal(body.store, false);
-        assert.equal(body.model, "gpt-6-luna");
+        assert.strictEqual(init!.credentials, "omit");
+        assert.strictEqual(init!.redirect, "error");
+        const body = JSON.parse(init!.body as string);
+        assert.strictEqual(body.stream, true);
+        assert.strictEqual(body.store, false);
+        assert.strictEqual(body.model, "gpt-6-luna");
         return new Response(new TextEncoder().encode(successful), {
           headers: type ? { "content-type": type } : {},
         });
       };
-      assert.equal(
+      assert.strictEqual(
         await testModel(tokens, "gpt-6-luna", new AbortController().signal),
         "Hello from Scraper.",
       );
@@ -58,18 +61,18 @@ test("unexpected response formats report safe status and format diagnostics", as
         "text/event-stream",
         'data: {"type":"response.failed","response":{"error":{"message":"PRIVATE_TOKEN"}}}\n\n',
       ],
-    ]) {
+    ] as const) {
       globalThis.fetch = async () =>
         new Response(body, { headers: { "content-type": type } });
-      await assert.rejects(
+      await expect(
         testModel(tokens, "model", new AbortController().signal),
-        (error) => {
-          assert.ok(error.message.includes("HTTP 200"));
-          assert.ok(error.message.includes(type));
-          assert.ok(!error.message.includes("PRIVATE_TOKEN"));
-          return true;
-        },
-      );
+      ).rejects.toSatisfy((error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.ok(error.message.includes("HTTP 200"));
+        assert.ok(error.message.includes(type));
+        assert.ok(!error.message.includes("PRIVATE_TOKEN"));
+        return true;
+      });
     }
   } finally {
     globalThis.fetch = original;
@@ -82,15 +85,13 @@ test("SDK rejects partial streams and bounds response bytes", async () => {
       new Response(
         event({ type: "response.output_text.delta", delta: "partial" }),
       );
-    await assert.rejects(
+    await expect(
       testModel(tokens, "model", new AbortController().signal),
-      /before successful completion/,
-    );
+    ).rejects.toThrow(/before successful completion/);
     globalThis.fetch = async () => new Response("x".repeat(2_000_001));
-    await assert.rejects(
+    await expect(
       testModel(tokens, "model", new AbortController().signal),
-      /exceeded the prototype limit/,
-    );
+    ).rejects.toThrow(/exceeded the prototype limit/);
   } finally {
     globalThis.fetch = original;
   }

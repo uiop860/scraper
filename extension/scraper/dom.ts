@@ -183,8 +183,8 @@ export function waitForDom(
   doc: Document,
   selector: string | undefined,
   signal: AbortSignal,
-  timeout = LIMITS.waitMs,
-  settle = LIMITS.settleMs,
+  timeout: number = LIMITS.waitMs,
+  settle: number = LIMITS.settleMs,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     let quiet: ReturnType<typeof setTimeout> | undefined;

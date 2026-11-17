@@ -1,48 +1,42 @@
-import assert from "node:assert/strict";
-import { test } from "node:test";
+import { assert, expect, test } from "vitest";
 import { parseHTML } from "linkedom";
-import { bundle } from "./helpers.mjs";
 const { queryElements, selectorParts, validateSelector, shadowContexts } =
-  await import(await bundle("extension/scraper/selectors.ts"));
-const { extract, waitForDom } = await import(
-  await bundle("extension/scraper/dom.ts")
-);
-const { parseSpec } = await import(await bundle("extension/scraper/spec.ts"));
-const { runScraper } = await import(
-  await bundle("extension/scraper/runner.ts")
-);
-const { dbaListings } = await import(await bundle("extension/scraper/dba.ts"));
+  await import("../extension/scraper/selectors.ts");
+import { extract, waitForDom } from "../extension/scraper/dom.ts";
+import { parseSpec } from "../extension/scraper/spec.ts";
+import { runScraper } from "../extension/scraper/runner.ts";
+import { dbaListings } from "../extension/scraper/dba.ts";
 
 function fixture() {
   const { document } = parseHTML(
     "<body><podium-layout></podium-layout></body>",
   );
   const root = document
-    .querySelector("podium-layout")
+    .querySelector("podium-layout")!
     .attachShadow({ mode: "open" });
   root.innerHTML =
     '<main><section data-testid="description"><div class="whitespace-pre-wrap">Complete listing description</div></section><inner-card></inner-card></main>';
-  root.querySelector("inner-card").attachShadow({ mode: "open" }).innerHTML =
+  root.querySelector("inner-card")!.attachShadow({ mode: "open" }).innerHTML =
     "<b>Nested content</b>";
   return { document, root };
 }
 test("shadow selectors cross only explicit open boundaries and preserve quoted CSS", () => {
   const { document } = fixture();
-  assert.equal(
+  assert.strictEqual(
     queryElements(document, '[data-testid="description"]').length,
     0,
   );
-  assert.equal(
+  assert.strictEqual(
     queryElements(document, 'podium-layout >>> [data-testid="description"]')
       .length,
     1,
   );
-  assert.equal(
-    queryElements(document, "podium-layout >>> inner-card >>> b")[0]
+  assert.strictEqual(
+    queryElements(document, "podium-layout >>> inner-card >>> b")[0]!
       .textContent,
     "Nested content",
   );
-  assert.deepEqual(selectorParts('[data-label="a >>> b"] >>> p'), [
+  assert.deepStrictEqual(selectorParts('[data-label="a >>> b"] >>> p'), [
     '[data-label="a >>> b"]',
     "p",
   ]);
@@ -50,7 +44,7 @@ test("shadow selectors cross only explicit open boundaries and preserve quoted C
   assert.throws(() => validateSelector("missing-host >>> [", document));
   assert.throws(() => selectorParts("host >>> "));
   const contexts = shadowContexts(document);
-  assert.equal(contexts.length, 2);
+  assert.strictEqual(contexts.length, 2);
   for (const { prefix } of contexts)
     assert.ok(queryElements(document, `${prefix}*`).length);
 });
@@ -79,14 +73,14 @@ test("DBA preset visits every listing and extracts descriptions inside its layou
     },
     new AbortController().signal,
   );
-  assert.equal(result.status, "completed");
-  assert.equal(result.items.length, 2);
-  assert.equal(visits.length, 3);
-  assert.deepEqual(
-    result.items.map((item) => item.detail.description),
+  assert.strictEqual(result.status, "completed");
+  assert.strictEqual(result.items.length, 2);
+  assert.strictEqual(visits.length, 3);
+  assert.deepStrictEqual(
+    result.items.map((item) => item.detail!.description),
     ["Complete listing description", "Complete listing description"],
   );
-  assert.equal(result.diagnostics.length, 0);
+  assert.strictEqual(result.diagnostics.length, 0);
 });
 test("readiness detects delayed shadow attachment and later mutations inside its root", async () => {
   const { document } = parseHTML(
@@ -101,20 +95,20 @@ test("readiness detects delayed shadow attachment and later mutations inside its
   );
   const inserted = setTimeout(() => {
     const root = document
-      .querySelector("podium-layout")
+      .querySelector("podium-layout")!
       .attachShadow({ mode: "open" });
     root.innerHTML = '<p class="description">Loading</p>';
     setTimeout(() => {
-      root.querySelector("p").textContent = "Full description";
+      root.querySelector("p")!.textContent = "Full description";
     }, 30);
   }, 120);
   const unrelated = setInterval(() => {
-    document.querySelector("aside").textContent = String(Date.now());
+    document.querySelector("aside")!.textContent = String(Date.now());
   }, 10);
   try {
     await ready;
-    assert.equal(
-      queryElements(document, "podium-layout >>> .description")[0].textContent,
+    assert.strictEqual(
+      queryElements(document, "podium-layout >>> .description")[0]!.textContent,
       "Full description",
     );
   } finally {
@@ -127,9 +121,9 @@ test("shadow readiness cancels and closed roots stay inaccessible", async () => 
     "<body><private-layout></private-layout></body>",
   );
   document
-    .querySelector("private-layout")
+    .querySelector("private-layout")!
     .attachShadow({ mode: "closed" }).innerHTML = "<p>Private</p>";
-  assert.equal(queryElements(document, "private-layout >>> p").length, 0);
+  assert.strictEqual(queryElements(document, "private-layout >>> p").length, 0);
   const controller = new AbortController();
   const ready = waitForDom(
     document,
@@ -139,5 +133,5 @@ test("shadow readiness cancels and closed roots stay inaccessible", async () => 
     5,
   );
   controller.abort();
-  await assert.rejects(ready, /Cancelled/);
+  await expect(ready).rejects.toThrow(/Cancelled/);
 });

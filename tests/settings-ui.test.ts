@@ -1,11 +1,11 @@
-import assert from "node:assert/strict";
-import { test } from "node:test";
+import type { MockData } from "./mock-types.ts";
+import { assert, test } from "vitest";
 import { build } from "esbuild";
 import { parseHTML } from "linkedom";
 
 async function mount(
-  page,
-  api,
+  page: string,
+  api: MockData,
   url = "moz-extension://scraper/scraper.html?tab=2",
 ) {
   api.storage ??= {
@@ -15,9 +15,9 @@ async function mount(
   const { window } = parseHTML(
     '<html><body><div id="root"></div></body></html>',
   );
-  const originals = new Map();
-  const intervals = [];
-  const pollers = [];
+  const originals = new Map<string, PropertyDescriptor | undefined>();
+  const intervals: ReturnType<typeof setInterval>[] = [];
+  const pollers: (() => void)[] = [];
   const interval = globalThis.setInterval;
   for (const [key, value] of Object.entries({
     window,
@@ -26,10 +26,10 @@ async function mount(
     location: new URL(url),
     history: { replaceState() {} },
     browser: api,
-    setInterval: (...args) => {
+    setInterval: (...args: Parameters<typeof setInterval>) => {
       const id = interval(...args);
       intervals.push(id);
-      pollers.push(args[0]);
+      pollers.push(args[0] as () => void);
       return id;
     },
   })) {
@@ -52,14 +52,14 @@ async function mount(
       define: { "process.env.NODE_ENV": '"production"' },
     });
     await import(
-      `data:text/javascript;base64,${Buffer.from(output.outputFiles[0].contents).toString("base64")}#${crypto.randomUUID()}`
+      `data:text/javascript;base64,${Buffer.from(output.outputFiles[0]!.contents).toString("base64")}#${crypto.randomUUID()}`
     );
     return {
       document: window.document,
       poll() {
         for (const update of pollers) update();
       },
-      async until(predicate) {
+      async until(predicate: () => unknown) {
         for (let attempt = 0; attempt < 100; attempt++) {
           if (predicate()) return;
           await new Promise((resolve) => setTimeout(resolve, 10));
@@ -73,7 +73,7 @@ async function mount(
         for (const id of intervals) clearInterval(id);
         for (const [key, descriptor] of originals) {
           if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-          else delete globalThis[key];
+          else Reflect.deleteProperty(globalThis, key);
         }
       },
     };
@@ -81,7 +81,7 @@ async function mount(
     for (const id of intervals) clearInterval(id);
     for (const [key, descriptor] of originals) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-      else delete globalThis[key];
+      else Reflect.deleteProperty(globalThis, key);
     }
     throw error;
   }
@@ -90,8 +90,8 @@ async function mount(
 test("React settings shows locked account state and unlock form", async () => {
   const page = await mount("settings", {
     runtime: {
-      async sendMessage(message) {
-        assert.equal(message.type, "status");
+      async sendMessage(message: MockData) {
+        assert.strictEqual(message.type, "status");
         return {
           ok: true,
           configured: true,
@@ -105,13 +105,25 @@ test("React settings shows locked account state and unlock form", async () => {
   try {
     await page.until(() =>
       page.document
-        .querySelector("#status")
+        .querySelector<HTMLElement>("#status")
         ?.textContent.includes("Saved sign-in locked"),
     );
-    assert.equal(page.document.querySelector("#unlock-form").hidden, false);
-    assert.equal(page.document.querySelector("#pin-confirm").hidden, true);
-    assert.equal(page.document.querySelector("#login").disabled, true);
-    assert.equal(page.document.querySelector("#models").disabled, true);
+    assert.strictEqual(
+      page.document.querySelector<HTMLElement>("#unlock-form")!.hidden,
+      false,
+    );
+    assert.strictEqual(
+      page.document.querySelector<HTMLInputElement>("#pin-confirm")!.hidden,
+      true,
+    );
+    assert.strictEqual(
+      page.document.querySelector<HTMLButtonElement>("#login")!.disabled,
+      true,
+    );
+    assert.strictEqual(
+      page.document.querySelector<HTMLButtonElement>("#models")!.disabled,
+      true,
+    );
   } finally {
     page.close();
   }
@@ -122,8 +134,8 @@ test("React callback relays the captured hash and displays completion", async ()
     "callback",
     {
       runtime: {
-        async sendMessage(message) {
-          assert.deepEqual(message, {
+        async sendMessage(message: MockData) {
+          assert.deepStrictEqual(message, {
             type: "callback",
             url: "synthetic-callback",
           });
@@ -136,7 +148,7 @@ test("React callback relays the captured hash and displays completion", async ()
   try {
     await page.until(() =>
       page.document
-        .querySelector("p")
+        .querySelector<HTMLElement>("p")
         ?.textContent.includes("Sign-in complete"),
     );
   } finally {
@@ -150,10 +162,10 @@ for (const trigger of ["reset", "logout", "poll"]) {
     let registrations = [
       { clientId: "saved-client", subject: "user", email: "user@example.com" },
     ];
-    const logins = [];
+    const logins: MockData[] = [];
     const page = await mount("settings", {
       runtime: {
-        async sendMessage(message) {
+        async sendMessage(message: MockData) {
           if (message.type === "logout") {
             configured = false;
             registrations = [];
@@ -173,43 +185,51 @@ for (const trigger of ["reset", "logout", "poll"]) {
       await page.until(
         () => page.document.querySelectorAll("#accounts option").length === 2,
       );
-      const select = page.document.querySelector("#accounts");
-      select.querySelectorAll("option")[1].selected = true;
-      select.dispatchEvent(
+      const select =
+        page.document.querySelector<HTMLSelectElement>("#accounts");
+      select!.querySelectorAll("option")[1]!.selected = true;
+      select!.dispatchEvent(
         new globalThis.window.Event("change", { bubbles: true }),
       );
       await new Promise((resolve) => setTimeout(resolve, 10));
-      page.document.querySelector("#login").click();
+      page.document.querySelector<HTMLButtonElement>("#login")!.click();
       await new Promise((resolve) => setTimeout(resolve, 10));
       await page.until(
         () =>
           logins.length === 1 &&
-          !page.document.querySelector("#login").disabled,
+          !page.document.querySelector<HTMLButtonElement>("#login")!.disabled,
       );
-      assert.equal(logins[0].clientId, "saved-client");
+      assert.strictEqual(logins[0]!.clientId, "saved-client");
 
       if (trigger === "poll") {
         configured = false;
         registrations = [];
         page.poll();
-      } else page.document.querySelector(`#${trigger}`).click();
+      } else
+        page.document.querySelector<HTMLInputElement>(`#${trigger}`)!.click();
       await page.until(
         () => page.document.querySelectorAll("#accounts option").length === 1,
       );
-      assert.equal(page.document.querySelector("#login").disabled, true);
+      assert.strictEqual(
+        page.document.querySelector<HTMLButtonElement>("#login")!.disabled,
+        true,
+      );
 
       // Simulate configuring a new PIN in another settings tab, then polling.
       configured = true;
       page.poll();
-      await page.until(() => !page.document.querySelector("#login").disabled);
-      page.document.querySelector("#login").click();
+      await page.until(
+        () =>
+          !page.document.querySelector<HTMLButtonElement>("#login")!.disabled,
+      );
+      page.document.querySelector<HTMLButtonElement>("#login")!.click();
       await new Promise((resolve) => setTimeout(resolve, 10));
       await page.until(
         () =>
           logins.length === 2 &&
-          !page.document.querySelector("#login").disabled,
+          !page.document.querySelector<HTMLButtonElement>("#login")!.disabled,
       );
-      assert.equal(logins[1].clientId, undefined);
+      assert.strictEqual(logins[1]!.clientId, undefined);
     } finally {
       page.close();
     }
@@ -222,7 +242,7 @@ test("settings restores the saved model across sessions and keeps it while locke
     storage: {
       local: {
         get: async () => ({ ...saved }),
-        set: async (data) => Object.assign(saved, data),
+        set: async (data: MockData) => Object.assign(saved, data),
       },
       onChanged: { addListener() {}, removeListener() {} },
     },
@@ -240,15 +260,17 @@ test("settings restores the saved model across sessions and keeps it while locke
     try {
       await page.until(
         () =>
-          page.document.querySelector("#model option")?.value ===
-          saved.selectedModel,
+          page.document.querySelector<HTMLOptionElement>("#model option")
+            ?.value === saved.selectedModel,
       );
       page.poll();
       await page.until(() =>
-        page.document.querySelector("#status")?.textContent.includes("locked"),
+        page.document
+          .querySelector<HTMLElement>("#status")
+          ?.textContent.includes("locked"),
       );
-      assert.equal(
-        page.document.querySelector("#model option").value,
+      assert.strictEqual(
+        page.document.querySelector<HTMLOptionElement>("#model option")!.value,
         "remembered-model",
       );
     } finally {

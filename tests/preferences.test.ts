@@ -1,19 +1,16 @@
-import assert from "node:assert/strict";
-import { test } from "node:test";
-import { bundle } from "./helpers.mjs";
-const { createPreferencesStore } = await import(
-  await bundle("extension/state/preferences.ts")
-);
+import type { MockData, MockCallback } from "./mock-types.ts";
+import { assert, test } from "vitest";
+import { createPreferencesStore } from "../extension/state/preferences.ts";
 
 test("persist hydrates, saves, syncs open stores, restores after restart, and cleans up listeners", async () => {
-  const listeners = new Set();
-  const data = { selectedModel: "saved" };
+  const listeners = new Set<MockCallback>();
+  const data: Record<string, string> = { selectedModel: "saved" };
   const original = globalThis.browser;
   globalThis.browser = {
     storage: {
       local: {
         get: async () => ({ ...data }),
-        async set(update) {
+        async set(update: MockData) {
           Object.assign(data, update);
           for (const listener of listeners)
             listener(
@@ -21,19 +18,19 @@ test("persist hydrates, saves, syncs open stores, restores after restart, and cl
               "local",
             );
         },
-        async remove(name) {
+        async remove(name: string) {
           delete data[name];
           for (const listener of listeners)
             listener({ selectedModel: {} }, "local");
         },
       },
       onChanged: {
-        addListener: (listener) => listeners.add(listener),
-        removeListener: (listener) => listeners.delete(listener),
+        addListener: (listener: MockCallback) => listeners.add(listener),
+        removeListener: (listener: MockCallback) => listeners.delete(listener),
       },
     },
-  };
-  const cleanup = [];
+  } as unknown as typeof browser;
+  const cleanup: (() => void)[] = [];
   try {
     const settings = createPreferencesStore();
     const sidebar = createPreferencesStore();
@@ -45,21 +42,21 @@ test("persist hydrates, saves, syncs open stores, restores after restart, and cl
       settings.persist.rehydrate(),
       sidebar.persist.rehydrate(),
     ]);
-    assert.equal(settings.getState().model, "saved");
-    assert.equal(sidebar.getState().model, "saved");
+    assert.strictEqual(settings.getState().model, "saved");
+    assert.strictEqual(sidebar.getState().model, "saved");
     await settings.getState().setModel("chosen");
     await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(data.selectedModel, "chosen");
-    assert.equal(sidebar.getState().model, "chosen");
+    assert.strictEqual(data.selectedModel, "chosen");
+    assert.strictEqual(sidebar.getState().model, "chosen");
     const restarted = createPreferencesStore();
     await restarted.persist.rehydrate();
-    assert.equal(restarted.getState().model, "chosen");
+    assert.strictEqual(restarted.getState().model, "chosen");
     await settings.persist.clearStorage();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(sidebar.getState().model, "");
+    assert.strictEqual(sidebar.getState().model, "");
   } finally {
     cleanup.forEach((unsubscribe) => unsubscribe());
     globalThis.browser = original;
   }
-  assert.equal(listeners.size, 0);
+  assert.strictEqual(listeners.size, 0);
 });

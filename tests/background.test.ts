@@ -1,40 +1,43 @@
+import type { MockData, MockCallback } from "./mock-types.ts";
 import { IDBFactory } from "fake-indexeddb";
-import assert from "node:assert/strict";
-import { test } from "node:test";
+import { assert, test } from "vitest";
 import { generateKeyPair, exportJWK, SignJWT } from "jose";
-import { bundle } from "./helpers.mjs";
+import { bundle } from "./helpers.ts";
 const source = await bundle("extension/background.ts");
 const issuer = "https://auth.openai.com";
 const pair = await generateKeyPair("RS256");
 const jwk = { ...(await exportJWK(pair.publicKey)), kid: "test", alg: "RS256" };
 
-async function harness(initial = {}) {
-  let listener, removed, clicked;
+async function harness(initial: MockData = {}) {
+  let listener!: MockCallback, removed!: MockCallback, clicked!: MockCallback;
   let sidebarOpens = 0;
   const stored = structuredClone(initial);
   const rules = new Map();
-  const updates = [];
-  const fetches = [];
-  let authorize, tokenHook, ruleHook;
+  const updates: MockData[] = [];
+  const fetches: { url: RequestInfo | URL; init?: RequestInit }[] = [];
+  let authorize!: URL, tokenHook!: MockCallback, ruleHook!: MockCallback;
   let expiresIn = 3600;
   const originalBrowser = globalThis.browser;
   const originalDB = globalThis.indexedDB;
   globalThis.indexedDB = new IDBFactory();
-  const sessionData = {};
+  const sessionData: MockData = {};
   const originalFetch = globalThis.fetch;
   globalThis.browser = {
     runtime: {
       onConnect: { addListener() {} },
       id: "scraper",
-      getURL: (p) => `moz-extension://scraper/${p}`,
+      getURL: (p: string) => `moz-extension://scraper/${p}`,
       onMessage: {
-        addListener(fn) {
+        addListener(fn: MockCallback) {
           listener = fn;
         },
       },
     },
     declarativeNetRequest: {
-      async updateSessionRules({ removeRuleIds = [], addRules = [] }) {
+      async updateSessionRules({
+        removeRuleIds = [],
+        addRules = [],
+      }: browser.declarativeNetRequest._UpdateSessionRulesOptions) {
         if (addRules.length && ruleHook) await ruleHook();
         for (const id of removeRuleIds) rules.delete(id);
         for (const r of addRules) rules.set(r.id, r);
@@ -42,26 +45,26 @@ async function harness(initial = {}) {
     },
     storage: {
       session: {
-        async get(key) {
+        async get(key: string) {
           return { [key]: structuredClone(sessionData[key]) };
         },
-        async set(value) {
+        async set(value: MockData) {
           Object.assign(sessionData, structuredClone(value));
         },
-        async remove(key) {
+        async remove(key: string) {
           delete sessionData[key];
         },
       },
       local: {
-        async get(keys) {
+        async get(keys: string[]) {
           return Object.fromEntries(
             (Array.isArray(keys) ? keys : [keys]).map((k) => [k, stored[k]]),
           );
         },
-        async set(value) {
+        async set(value: MockData) {
           Object.assign(stored, value);
         },
-        async remove(keys) {
+        async remove(keys: string[]) {
           for (const key of keys) delete stored[key];
         },
       },
@@ -71,22 +74,22 @@ async function harness(initial = {}) {
       async create() {
         return { id: 42 };
       },
-      async update(id, { url }) {
+      async update(id: number, { url }: MockData) {
         updates.push({ id, url });
         authorize = new URL(url);
       },
-      async remove(id) {
+      async remove(id: number) {
         removed?.(id);
       },
       onRemoved: {
-        addListener(fn) {
+        addListener(fn: MockCallback) {
           removed = fn;
         },
       },
     },
     action: {
       onClicked: {
-        addListener(fn) {
+        addListener(fn: MockCallback) {
           clicked = fn;
         },
       },
@@ -97,10 +100,10 @@ async function harness(initial = {}) {
         return Promise.resolve();
       },
     },
-  };
+  } as unknown as typeof browser;
   globalThis.fetch = async (url, init) => {
     fetches.push({ url, init });
-    if (url.endsWith("/token")) {
+    if (String(url).endsWith("/token")) {
       if (tokenHook) return tokenHook(url, init);
       const jwt = await new SignJWT({
         nonce: authorize.searchParams.get("nonce"),
@@ -122,15 +125,16 @@ async function harness(initial = {}) {
         scope: "openid chatgpt.tokens.use.direct",
       });
     }
-    if (url.endsWith("jwks.json")) return Response.json({ keys: [jwk] });
-    if (url.endsWith("/revoke")) return new Response(null);
-    if (url.endsWith("/models"))
+    if (String(url).endsWith("jwks.json"))
+      return Response.json({ keys: [jwk] });
+    if (String(url).endsWith("/revoke")) return new Response(null);
+    if (String(url).endsWith("/models"))
       return Response.json({
         models: [
           { slug: "allowed", display_name: "Allowed", visibility: "list" },
         ],
       });
-    if (url.endsWith("/responses"))
+    if (String(url).endsWith("/responses"))
       return new Response(
         'data: {"type":"response.output_text.delta","delta":"Hello"}\n\ndata: {"type":"response.completed","response":{"status":"completed"}}\n\n',
         { headers: { "content-type": "text/event-stream" } },
@@ -144,12 +148,13 @@ async function harness(initial = {}) {
     tab: { id: 1 },
     frameId: 0,
   };
-  const send = (message, from = sender) => listener(message, from);
+  const send = (message: MockData, from: MockData = sender) =>
+    listener(message, from);
   const complete = (params = {}, tabId = 42, fragment = "") =>
     send(
       {
         type: "callback",
-        url: `http://127.0.0.1:1455/auth/callback?${new URLSearchParams({ code: "code", client_id: "oaiapp_test", state: authorize.searchParams.get("state"), ...params })}`,
+        url: `http://127.0.0.1:1455/auth/callback?${new URLSearchParams({ code: "code", client_id: "oaiapp_test", state: authorize.searchParams.get("state")!, ...params })}`,
       },
       {
         ...sender,
@@ -157,7 +162,7 @@ async function harness(initial = {}) {
         tab: { id: tabId },
       },
     );
-  assert.equal((await send({ type: "unlock", pin: "1234" })).ok, true);
+  assert.strictEqual((await send({ type: "unlock", pin: "1234" })).ok, true);
   return {
     async restart(browserRestart = false) {
       if (browserRestart)
@@ -174,13 +179,13 @@ async function harness(initial = {}) {
       clicked();
       return sidebarOpens;
     },
-    setExpiry(value) {
+    setExpiry(value: number) {
       expiresIn = value;
     },
-    setRuleHook(fn) {
+    setRuleHook(fn: MockCallback) {
       ruleHook = fn;
     },
-    setTokenHook(fn) {
+    setTokenHook(fn: MockCallback) {
       tokenHook = fn;
     },
     async close() {
@@ -194,20 +199,20 @@ async function harness(initial = {}) {
 test("background login, model request, isolation, replay protection, and logout", async () => {
   const h = await harness();
   try {
-    assert.equal(h.clickToolbar(), 1);
-    assert.equal((await h.send({ type: "login" })).ok, true);
-    assert.equal(h.rules.size, 1);
-    assert.equal((await h.send({ type: "login" })).ok, false);
-    assert.equal((await h.complete({}, 99)).ok, false);
-    assert.equal(h.fetches.length, 0);
-    assert.equal((await h.complete()).ok, true);
-    assert.equal(h.rules.size, 0);
-    assert.equal((await h.complete()).ok, false);
+    assert.strictEqual(h.clickToolbar(), 1);
+    assert.strictEqual((await h.send({ type: "login" })).ok, true);
+    assert.strictEqual(h.rules.size, 1);
+    assert.strictEqual((await h.send({ type: "login" })).ok, false);
+    assert.strictEqual((await h.complete({}, 99)).ok, false);
+    assert.strictEqual(h.fetches.length, 0);
+    assert.strictEqual((await h.complete()).ok, true);
+    assert.strictEqual(h.rules.size, 0);
+    assert.strictEqual((await h.complete()).ok, false);
     const status = await h.send({ type: "status" });
-    assert.equal(status.signedIn, true);
+    assert.strictEqual(status.signedIn, true);
     assert.ok(!JSON.stringify(status).includes("SECRET"));
     assert.ok(!JSON.stringify(h.stored).includes("SECRET"));
-    assert.equal(
+    assert.strictEqual(
       await h.send(
         { type: "models" },
         {
@@ -219,7 +224,7 @@ test("background login, model request, isolation, replay protection, and logout"
       ),
       undefined,
     );
-    assert.equal(
+    assert.strictEqual(
       await h.send(
         { type: "models" },
         { id: "other", url: "moz-extension://scraper/settings.html" },
@@ -227,25 +232,30 @@ test("background login, model request, isolation, replay protection, and logout"
       undefined,
     );
     const choices = await h.send({ type: "models" });
-    assert.equal(choices.models[0].id, "allowed");
-    assert.equal(
+    assert.strictEqual(choices.models[0].id, "allowed");
+    assert.strictEqual(
       (await h.send({ type: "test", model: "not-listed" })).ok,
       false,
     );
-    assert.equal(
+    assert.strictEqual(
       (await h.send({ type: "test", model: "allowed" })).text,
       "Hello",
     );
-    const inference = h.fetches.find((f) => f.url.endsWith("/responses"));
-    assert.equal(
-      new Headers(inference.init.headers).get("Authorization"),
+    const inference = h.fetches.find((f) =>
+      String(f.url).endsWith("/responses"),
+    );
+    assert.strictEqual(
+      new Headers(inference!.init!.headers).get("Authorization"),
       "Bearer SECRET_ACCESS",
     );
-    assert.equal(JSON.parse(inference.init.body).store, false);
-    assert.equal(inference.init.credentials, "omit");
-    assert.equal((await h.send({ type: "logout" })).ok, true);
-    assert.equal((await h.send({ type: "status" })).signedIn, false);
-    assert.ok(h.fetches.some((f) => f.url.endsWith("/revoke")));
+    assert.strictEqual(
+      JSON.parse(inference!.init!.body as string).store,
+      false,
+    );
+    assert.strictEqual(inference!.init!.credentials, "omit");
+    assert.strictEqual((await h.send({ type: "logout" })).ok, true);
+    assert.strictEqual((await h.send({ type: "status" })).signedIn, false);
+    assert.ok(h.fetches.some((f) => String(f.url).endsWith("/revoke")));
   } finally {
     await h.close();
   }
@@ -255,22 +265,25 @@ test("cancel, invalid state, failed exchange and permission failure release the 
   try {
     await h.send({ type: "login" });
     await h.send({ type: "cancel" });
-    assert.equal(h.rules.size, 0);
+    assert.strictEqual(h.rules.size, 0);
     await h.send({ type: "login" });
-    assert.equal((await h.complete({ state: "spoof" })).ok, false);
-    assert.equal(h.rules.size, 0);
-    assert.equal(h.fetches.length, 0);
+    assert.strictEqual((await h.complete({ state: "spoof" })).ok, false);
+    assert.strictEqual(h.rules.size, 0);
+    assert.strictEqual(h.fetches.length, 0);
     await h.send({ type: "login" });
-    assert.equal((await h.complete({ error: "access_denied" })).ok, false);
-    assert.equal(h.rules.size, 0);
+    assert.strictEqual(
+      (await h.complete({ error: "access_denied" })).ok,
+      false,
+    );
+    assert.strictEqual(h.rules.size, 0);
     await h.send({ type: "login" });
     h.setTokenHook(
       () => new Response("SECRET_TOKEN_DO_NOT_LEAK", { status: 400 }),
     );
     const result = await h.complete();
-    assert.equal(result.ok, false);
+    assert.strictEqual(result.ok, false);
     assert.ok(!result.error.includes("SECRET"));
-    assert.equal(h.rules.size, 0);
+    assert.strictEqual(h.rules.size, 0);
     h.setTokenHook(() => {
       throw new TypeError("SECRET network error");
     });
@@ -284,7 +297,7 @@ test("logout during code exchange cannot restore credentials", async () => {
   const h = await harness();
   try {
     await h.send({ type: "login" });
-    let release;
+    let release!: MockCallback;
     const delayed = new Promise((resolve) => {
       release = resolve;
     });
@@ -293,7 +306,7 @@ test("logout during code exchange cannot restore credentials", async () => {
     // Let callback processing reach its mocked network request.
     await new Promise((resolve) => setImmediate(resolve));
     await h.send({ type: "logout" });
-    release(
+    release!(
       Response.json({
         access_token: "LATE",
         token_type: "Bearer",
@@ -301,9 +314,9 @@ test("logout during code exchange cannot restore credentials", async () => {
         scope: "openid",
       }),
     );
-    assert.equal((await completion).ok, false);
-    assert.equal((await h.send({ type: "status" })).signedIn, false);
-    assert.equal(h.rules.size, 0);
+    assert.strictEqual((await completion).ok, false);
+    assert.strictEqual((await h.send({ type: "status" })).signedIn, false);
+    assert.strictEqual(h.rules.size, 0);
   } finally {
     await h.close();
   }
@@ -315,12 +328,15 @@ test("restart retains host and registrations but no credentials", async () => {
   });
   try {
     const status = await h.send({ type: "status" });
-    assert.equal(status.signedIn, false);
-    assert.equal(status.registrations[0].clientId, "oaiapp_saved");
+    assert.strictEqual(status.signedIn, false);
+    assert.strictEqual(status.registrations[0].clientId, "oaiapp_saved");
     await h.send({ type: "login", clientId: "oaiapp_saved" });
-    const url = new URL(h.updates[0].url);
-    assert.equal(url.searchParams.get("ext_agent_host_id"), "urn:uuid:saved");
-    assert.equal(url.searchParams.get("client_id"), "oaiapp_saved");
+    const url = new URL(h.updates[0]!.url);
+    assert.strictEqual(
+      url.searchParams.get("ext_agent_host_id"),
+      "urn:uuid:saved",
+    );
+    assert.strictEqual(url.searchParams.get("client_id"), "oaiapp_saved");
   } finally {
     await h.close();
   }
@@ -332,12 +348,12 @@ test("expired credentials rotate and subsequent refresh uses the latest token", 
   try {
     h.setExpiry(1);
     await h.send({ type: "login" });
-    assert.equal((await h.complete()).ok, true);
+    assert.strictEqual((await h.complete()).ok, true);
     let count = 0;
-    h.setTokenHook((_url, init) => {
-      const fields = new URLSearchParams(init.body);
-      assert.equal(fields.get("grant_type"), "refresh_token");
-      assert.equal(
+    h.setTokenHook((_url: string, init: RequestInit) => {
+      const fields = new URLSearchParams(init!.body as string);
+      assert.strictEqual(fields.get("grant_type"), "refresh_token");
+      assert.strictEqual(
         fields.get("refresh_token"),
         count === 0 ? "SECRET_REFRESH" : "ROTATED",
       );
@@ -353,14 +369,14 @@ test("expired credentials rotate and subsequent refresh uses the latest token", 
       h.send({ type: "models" }),
       h.send({ type: "models" }),
     ]);
-    assert.equal(first.ok, true);
-    assert.equal(concurrent.ok, true);
-    assert.equal(count, 1);
-    assert.equal((await h.send({ type: "models" })).ok, true);
-    assert.equal(count, 1);
+    assert.strictEqual(first.ok, true);
+    assert.strictEqual(concurrent.ok, true);
+    assert.strictEqual(count, 1);
+    assert.strictEqual((await h.send({ type: "models" })).ok, true);
+    assert.strictEqual(count, 1);
     Date.now = () => now() + 3_600_000;
-    assert.equal((await h.send({ type: "models" })).ok, true);
-    assert.equal(count, 2);
+    assert.strictEqual((await h.send({ type: "models" })).ok, true);
+    assert.strictEqual(count, 2);
     assert.ok(!JSON.stringify(h.stored).includes("ROTATED"));
   } finally {
     Date.now = now;
@@ -370,8 +386,8 @@ test("expired credentials rotate and subsequent refresh uses the latest token", 
 test("cancel during rule installation waits for installation and removes the rule", async () => {
   const h = await harness();
   try {
-    let release;
-    const entered = Promise.withResolvers();
+    let release!: MockCallback;
+    const entered = Promise.withResolvers<void>();
     h.setRuleHook(
       () =>
         new Promise((resolve) => {
@@ -382,17 +398,17 @@ test("cancel during rule installation waits for installation and removes the rul
     const login = h.send({ type: "login" });
     await entered.promise;
     const cancelled = h.send({ type: "cancel" });
-    release();
-    assert.equal((await login).ok, false);
-    assert.equal((await cancelled).ok, true);
-    assert.equal(h.rules.size, 0);
-    assert.equal(h.updates.length, 0);
-    assert.equal((await h.send({ type: "status" })).pending, false);
+    release!();
+    assert.strictEqual((await login).ok, false);
+    assert.strictEqual((await cancelled).ok, true);
+    assert.strictEqual(h.rules.size, 0);
+    assert.strictEqual(h.updates.length, 0);
+    assert.strictEqual((await h.send({ type: "status" })).pending, false);
     h.setRuleHook(() => {
       throw new Error("Permission denied");
     });
-    assert.equal((await h.send({ type: "login" })).ok, false);
-    assert.equal(h.rules.size, 0);
+    assert.strictEqual((await h.send({ type: "login" })).ok, false);
+    assert.strictEqual(h.rules.size, 0);
   } finally {
     await h.close();
   }
@@ -402,20 +418,23 @@ test("browser restart requires PIN, restores saved sign-in and refreshes only on
   const h = await harness();
   try {
     await h.send({ type: "login" });
-    assert.equal((await h.complete()).ok, true);
+    assert.strictEqual((await h.complete()).ok, true);
     const before = h.fetches.length;
     await h.restart();
-    assert.equal((await h.send({ type: "status" })).signedIn, true);
-    assert.equal((await h.send({ type: "models" })).ok, true);
-    assert.equal(h.fetches.length, before + 1); // cached access token survives event page restart
+    assert.strictEqual((await h.send({ type: "status" })).signedIn, true);
+    assert.strictEqual((await h.send({ type: "models" })).ok, true);
+    assert.strictEqual(h.fetches.length, before + 1); // cached access token survives event page restart
     await h.restart(true);
     const locked = await h.send({ type: "status" });
-    assert.equal(locked.locked, true);
-    assert.equal(locked.signedIn, false);
-    assert.equal((await h.send({ type: "models" })).ok, false);
-    assert.equal((await h.send({ type: "unlock", pin: "1234" })).ok, true);
-    assert.equal((await h.send({ type: "status" })).signedIn, true);
-    assert.equal(h.fetches.length, before + 1); // unlocking does not refresh
+    assert.strictEqual(locked.locked, true);
+    assert.strictEqual(locked.signedIn, false);
+    assert.strictEqual((await h.send({ type: "models" })).ok, false);
+    assert.strictEqual(
+      (await h.send({ type: "unlock", pin: "1234" })).ok,
+      true,
+    );
+    assert.strictEqual((await h.send({ type: "status" })).signedIn, true);
+    assert.strictEqual(h.fetches.length, before + 1); // unlocking does not refresh
     h.setTokenHook(() =>
       Response.json({
         access_token: "RESTORED",
@@ -424,13 +443,13 @@ test("browser restart requires PIN, restores saved sign-in and refreshes only on
         expires_in: 3600,
       }),
     );
-    assert.equal((await h.send({ type: "models" })).ok, true);
+    assert.strictEqual((await h.send({ type: "models" })).ok, true);
     await h.send({ type: "logout" });
-    assert.deepEqual(h.stored, {});
+    assert.deepStrictEqual(h.stored, {});
     await h.restart(true);
     const cleared = await h.send({ type: "status" });
-    assert.equal(cleared.configured, false);
-    assert.equal(cleared.signedIn, false);
+    assert.strictEqual(cleared.configured, false);
+    assert.strictEqual(cleared.signedIn, false);
   } finally {
     await h.close();
   }
@@ -440,12 +459,12 @@ test("locked reset and strict message/private browsing boundaries", async () => 
   const h = await harness();
   try {
     await h.restart(true);
-    assert.equal(
+    assert.strictEqual(
       (await h.send({ type: "unlock", pin: "1234", url: "https://evil.test" }))
         .ok,
       false,
     );
-    assert.equal(
+    assert.strictEqual(
       await h.send(
         { type: "unlock", pin: "1234" },
         {
@@ -456,9 +475,12 @@ test("locked reset and strict message/private browsing boundaries", async () => 
       ),
       undefined,
     );
-    assert.equal((await h.send({ type: "login", clientId: 42 })).ok, false);
-    assert.equal((await h.send({ type: "logout" })).ok, true);
-    assert.equal((await h.send({ type: "status" })).configured, false);
+    assert.strictEqual(
+      (await h.send({ type: "login", clientId: 42 })).ok,
+      false,
+    );
+    assert.strictEqual((await h.send({ type: "logout" })).ok, true);
+    assert.strictEqual((await h.send({ type: "status" })).configured, false);
   } finally {
     await h.close();
   }
@@ -468,11 +490,11 @@ test("callback sender may retain its original fragment after history replacement
   const h = await harness();
   try {
     await h.send({ type: "login" });
-    assert.equal(
+    assert.strictEqual(
       (await h.complete({}, 42, "#original-callback-fragment")).ok,
       true,
     );
-    assert.equal((await h.send({ type: "status" })).signedIn, true);
+    assert.strictEqual((await h.send({ type: "status" })).signedIn, true);
   } finally {
     await h.close();
   }
@@ -487,29 +509,32 @@ test("sidebar can inspect and unlock saved auth but cannot manage the account", 
   };
   try {
     await h.send({ type: "login" });
-    assert.equal((await h.complete()).ok, true);
+    assert.strictEqual((await h.complete()).ok, true);
     await h.restart(true);
     const status = await h.send({ type: "status" }, sidebar);
-    assert.equal(status.locked, true);
+    assert.strictEqual(status.locked, true);
     assert.ok(!JSON.stringify(status).includes("SECRET"));
     for (const type of ["login", "logout", "models", "test"])
-      assert.equal(await h.send({ type }, sidebar), undefined);
-    assert.equal(
+      assert.strictEqual(await h.send({ type }, sidebar), undefined);
+    assert.strictEqual(
       await h.send({ type: "unlock", pin: "1234" }, { ...sidebar, frameId: 1 }),
       undefined,
     );
-    assert.equal(
+    assert.strictEqual(
       await h.send(
         { type: "unlock", pin: "1234" },
         { ...sidebar, tab: { id: 2, incognito: true } },
       ),
       undefined,
     );
-    assert.equal(
+    assert.strictEqual(
       (await h.send({ type: "unlock", pin: "1234" }, sidebar)).ok,
       true,
     );
-    assert.equal((await h.send({ type: "status" }, sidebar)).signedIn, true);
+    assert.strictEqual(
+      (await h.send({ type: "status" }, sidebar)).signedIn,
+      true,
+    );
   } finally {
     await h.close();
   }

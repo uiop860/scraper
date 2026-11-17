@@ -1,18 +1,16 @@
-import assert from "node:assert/strict";
-import { test } from "node:test";
+import type { MockData } from "./mock-types.ts";
+import type { Spec, Field } from "../extension/scraper/spec.ts";
+import { assert, expect, test, vi } from "vitest";
 import { readFile } from "node:fs/promises";
 import { parseHTML } from "linkedom";
-import { bundle } from "./helpers.mjs";
-const { parseSpec, navigationUrl, LIMITS } = await import(
-  await bundle("extension/scraper/spec.ts")
-);
-const { extract, waitForDom } = await import(
-  await bundle("extension/scraper/dom.ts")
-);
-const { runScraper, resultJson } = await import(
-  await bundle("extension/scraper/runner.ts")
-);
-const { guardRules } = await import(await bundle("extension/scraper/guard.ts"));
+import { parseSpec, navigationUrl, LIMITS } from "../extension/scraper/spec.ts";
+import {
+  extract,
+  waitForDom,
+  ReadinessError,
+} from "../extension/scraper/dom.ts";
+import { runScraper, resultJson } from "../extension/scraper/runner.ts";
+import { guardRules } from "../extension/scraper/guard.ts";
 const html = await readFile(
   new URL("./fixtures/list.html", import.meta.url),
   "utf8",
@@ -50,19 +48,19 @@ const spec = {
     fields: { description: { selector: ".description", value: "text" } },
   },
   pagination: { type: "next", selector: "a[rel=next]" },
-};
+} satisfies Spec;
 function document(markup = html) {
   return parseHTML(markup).document;
 }
-function fixtureDriver(pages) {
-  const calls = [];
+function fixtureDriver(pages: Record<string, string | Error>) {
+  const calls: string[] = [];
   let closed = 0;
   return {
     calls,
     get closed() {
       return closed;
     },
-    async visit(url, kind, spec) {
+    async visit(url: string, kind: "list" | "detail", spec: Spec) {
       calls.push(url);
       const markup = pages[url];
       if (markup instanceof Error) throw markup;
@@ -77,7 +75,7 @@ function fixtureDriver(pages) {
 const signal = () => new AbortController().signal;
 
 test("strict schema, selector validation, recursion, and malicious properties", () => {
-  assert.equal(parseSpec(spec).version, 1);
+  assert.strictEqual(parseSpec(spec).version, 1);
   for (const input of [
     { ...spec, version: 2 },
     { ...spec, execute: "alert(1)" },
@@ -100,10 +98,10 @@ test("strict schema, selector validation, recursion, and malicious properties", 
   const bad = structuredClone(spec);
   bad.list.fields.title.selector = "[";
   assert.throws(
-    () => parseSpec(bad, (s) => document().querySelector(s)),
+    () => parseSpec(bad, (s: string) => document().querySelector(s)),
     /Invalid CSS/,
   );
-  let nested = { selector: "div", value: "text" };
+  let nested: Field = { selector: "div", value: "text" };
   for (let i = 0; i < 7; i++) nested = { selector: "div", fields: { nested } };
   assert.throws(() =>
     parseSpec({
@@ -116,22 +114,22 @@ test("strict schema, selector validation, recursion, and malicious properties", 
 
 test("text, attributes, nested fields, multiple matches, missing values and hostile base URL", () => {
   const page = extract(document(), parseSpec(spec), "list", start);
-  assert.equal(page.items.length, 2);
-  assert.equal(page.items[0].title, "Sewing machine");
-  assert.equal(page.items[0].url, "https://market.test/detail/1");
-  assert.deepEqual(page.items[0].images, [
+  assert.strictEqual(page.items.length, 2);
+  assert.strictEqual(page.items[0]!.title, "Sewing machine");
+  assert.strictEqual(page.items[0]!.url, "https://market.test/detail/1");
+  assert.deepStrictEqual(page.items[0]!.images, [
     "https://market.test/a.jpg",
     "https://market.test/b.jpg",
   ]);
-  assert.deepEqual(page.items[0].seller, { name: "Alice" });
-  assert.equal(page.items[1].price, null);
-  assert.equal(page.items[1].seller, null);
-  assert.deepEqual(page.items[1].images, []);
+  assert.deepStrictEqual(page.items[0]!.seller, { name: "Alice" });
+  assert.strictEqual(page.items[1]!.price, null);
+  assert.strictEqual(page.items[1]!.seller, null);
+  assert.deepStrictEqual(page.items[1]!.images, []);
   assert.ok(
     page.diagnostics.some((d) => d.path.endsWith("seller") && d.matches === 0),
   );
   assert.ok(!page.diagnostics.some((d) => d.path.endsWith("price")));
-  assert.equal(page.next, "?page=2");
+  assert.strictEqual(page.next, "?page=2");
   const bad = structuredClone(spec);
   bad.list.fields.title.selector = "[";
   assert.ok(
@@ -147,7 +145,7 @@ test("text, attributes, nested fields, multiple matches, missing values and host
     "list",
     start,
   );
-  assert.equal(unsafe.items[0].url, null);
+  assert.strictEqual(unsafe.items[0]!.url, null);
   assert.ok(unsafe.diagnostics.some((d) => d.code === "invalid_url"));
 });
 
@@ -159,24 +157,28 @@ test("pagination, detail pages, deduplication, cycles and structured source URLs
     "https://market.test/search?page=2": html.replace("?page=2", "/search"),
   });
   const result = await runScraper(spec, start, driver, signal());
-  assert.equal(result.status, "completed");
-  assert.equal(result.items.length, 2);
-  assert.equal(driver.calls.length, 4);
-  assert.equal(driver.closed, 1);
-  assert.deepEqual(result.items[0].detail, { description: "Works well" });
-  assert.deepEqual(result.items[0].source, {
+  assert.strictEqual(result.status, "completed");
+  assert.strictEqual(result.items.length, 2);
+  assert.strictEqual(driver.calls.length, 4);
+  assert.strictEqual(driver.closed, 1);
+  assert.deepStrictEqual(result.items[0]!.detail, {
+    description: "Works well",
+  });
+  assert.deepStrictEqual(result.items[0]!.source, {
     list: start,
     detail: "https://market.test/detail/1",
   });
   assert.ok(result.diagnostics.some((d) => d.code === "pagination_cycle"));
   const exported = JSON.parse(resultJson(result));
-  assert.equal(Object.hasOwn(exported, "pages"), false);
-  assert.equal(Object.hasOwn(exported, "diagnostics"), false);
-  assert.deepEqual(
+  assert.strictEqual(Object.hasOwn(exported, "pages"), false);
+  assert.strictEqual(Object.hasOwn(exported, "diagnostics"), false);
+  assert.deepStrictEqual(
     exported.items,
     result.items.map((item) => ({ data: item.data, detail: item.detail })),
   );
-  assert.ok(exported.items.every((item) => !Object.hasOwn(item, "source")));
+  assert.ok(
+    exported.items.every((item: MockData) => !Object.hasOwn(item, "source")),
+  );
 });
 
 test("detail failures retain listing data, duplicate detail links are visited once", async () => {
@@ -192,10 +194,10 @@ test("detail failures retain listing data, duplicate detail links are visited on
     driver,
     signal(),
   );
-  assert.equal(result.status, "completed");
-  assert.equal(result.items.length, 2);
-  assert.equal(driver.calls.length, 2);
-  assert.equal(result.items[0].detail, null);
+  assert.strictEqual(result.status, "completed");
+  assert.strictEqual(result.items.length, 2);
+  assert.strictEqual(driver.calls.length, 2);
+  assert.strictEqual(result.items[0]!.detail, null);
   assert.ok(result.diagnostics.some((d) => d.code === "detail_failed"));
 });
 
@@ -209,7 +211,7 @@ test("navigation restrictions reject off-origin targets, credentials and schemes
     "file:///tmp/x",
   ])
     assert.throws(() => navigationUrl(url, start, new URL(start).origin));
-  assert.equal(
+  assert.strictEqual(
     navigationUrl("/a#b", start, new URL(start).origin),
     "https://market.test/a",
   );
@@ -219,15 +221,15 @@ test("navigation restrictions reject off-origin targets, credentials and schemes
       .replaceAll("/detail/", "https://evil.test/detail/"),
   });
   const result = await runScraper(spec, start, driver, signal());
-  assert.equal(result.status, "failed");
-  assert.deepEqual(driver.calls, [start]);
-  assert.equal(result.items.length, 2);
+  assert.strictEqual(result.status, "failed");
+  assert.deepStrictEqual(driver.calls, [start]);
+  assert.strictEqual(result.items.length, 2);
 });
 
 test("engine independently enforces page, item and result limits", async () => {
   let count = 0;
   const driver = {
-    async visit(url) {
+    async visit(url: string) {
       count++;
       return {
         url,
@@ -248,10 +250,10 @@ test("engine independently enforces page, item and result limits", async () => {
     pagination: { type: "next", selector: "a" },
   };
   const pageLimit = await runScraper(simple, start, driver, signal());
-  assert.equal(pageLimit.status, "limited");
-  assert.equal(count, LIMITS.pages);
+  assert.strictEqual(pageLimit.status, "limited");
+  assert.strictEqual(count, LIMITS.pages);
   const many = {
-    async visit(url) {
+    async visit(url: string) {
       return {
         url,
         items: Array.from({ length: 201 }, (_, i) => ({ title: String(i) })),
@@ -262,10 +264,10 @@ test("engine independently enforces page, item and result limits", async () => {
     async close() {},
   };
   const itemLimit = await runScraper(simple, start, many, signal());
-  assert.equal(itemLimit.items.length, LIMITS.items);
-  assert.equal(itemLimit.status, "limited");
+  assert.strictEqual(itemLimit.items.length, LIMITS.items);
+  assert.strictEqual(itemLimit.status, "limited");
   const huge = {
-    async visit(url) {
+    async visit(url: string) {
       return {
         url,
         items: [{ title: "x".repeat(LIMITS.resultBytes) }],
@@ -276,15 +278,15 @@ test("engine independently enforces page, item and result limits", async () => {
     async close() {},
   };
   const sizeLimit = await runScraper(simple, start, huge, signal());
-  assert.equal(sizeLimit.status, "limited");
-  assert.equal(sizeLimit.items.length, 0);
+  assert.strictEqual(sizeLimit.status, "limited");
+  assert.strictEqual(sizeLimit.items.length, 0);
 });
 
 test("cancellation interrupts an unresponsive driver and preserves partial data", async () => {
   const controller = new AbortController();
   let closed = false;
   const driver = {
-    async visit(url, kind) {
+    async visit(url: string, kind: "list" | "detail") {
       if (kind === "list")
         return {
           url,
@@ -293,39 +295,43 @@ test("cancellation interrupts an unresponsive driver and preserves partial data"
           diagnostics: [],
         };
       controller.abort();
-      return new Promise(() => {});
+      return new Promise<never>(() => {});
     },
     async close() {
       closed = true;
     },
   };
   const result = await runScraper(spec, start, driver, controller.signal);
-  assert.equal(result.status, "cancelled");
-  assert.equal(result.items[0].data.title, "saved");
-  assert.equal(closed, true);
+  assert.strictEqual(result.status, "cancelled");
+  assert.strictEqual(result.items[0]!.data.title, "saved");
+  assert.strictEqual(closed, true);
 });
 
 test("dynamic content waits for insertion and settles; timeouts and cancellation release observers", async () => {
   const doc = document("<main></main>");
   const waiting = waitForDom(doc, ".ready", signal(), 200, 10);
   setTimeout(() => {
-    doc.querySelector("main").innerHTML = '<p class="ready">Loaded</p>';
+    doc.querySelector("main")!.innerHTML = '<p class="ready">Loaded</p>';
   }, 10);
   await waiting;
-  await assert.rejects(waitForDom(doc, ".never", signal(), 20, 1), /timed out/);
+  await expect(waitForDom(doc, ".never", signal(), 20, 1)).rejects.toThrow(
+    /timed out/,
+  );
   const controller = new AbortController();
   const cancelled = waitForDom(doc, ".never", controller.signal, 100, 1);
   controller.abort();
-  await assert.rejects(cancelled, /Cancelled/);
-  await assert.rejects(waitForDom(doc, "[", signal(), 20, 1), /Invalid/);
+  await expect(cancelled).rejects.toThrow(/Cancelled/);
+  await expect(waitForDom(doc, "[", signal(), 20, 1)).rejects.toThrow(
+    /Invalid/,
+  );
 });
 
 test("navigation guard is tab-scoped and permits only exact origin boundaries", () => {
   const [block, allow] = guardRules(42, "https://market.test");
-  assert.deepEqual(block.condition.tabIds, [42]);
-  assert.equal(block.action.type, "block");
-  assert.ok(allow.priority > block.priority);
-  const regex = new RegExp(allow.condition.regexFilter);
+  assert.deepStrictEqual(block!.condition.tabIds, [42]);
+  assert.strictEqual(block!.action.type, "block");
+  assert.ok(allow!.priority! > block!.priority!);
+  const regex = new RegExp(allow!.condition.regexFilter!);
   assert.ok(regex.test(start));
   for (const url of [
     "https://market.test.evil/x",
@@ -336,14 +342,19 @@ test("navigation guard is tab-scoped and permits only exact origin boundaries", 
     assert.ok(!regex.test(url));
 });
 
-test("execution deadline cancels a stalled visit without relying on the spec", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  const entered = Promise.withResolvers();
+test("execution deadline cancels a stalled visit without relying on the spec", async ({
+  onTestFinished,
+}) => {
+  vi.useFakeTimers({ toFake: ["setTimeout"] });
+  onTestFinished(() => {
+    vi.useRealTimers();
+  });
+  const entered = Promise.withResolvers<void>();
   let closed = false;
   const driver = {
     async visit() {
       entered.resolve();
-      return new Promise(() => {});
+      return new Promise<never>(() => {});
     },
     async close() {
       closed = true;
@@ -351,17 +362,17 @@ test("execution deadline cancels a stalled visit without relying on the spec", a
   };
   const running = runScraper(spec, start, driver, signal());
   await entered.promise;
-  t.mock.timers.tick(LIMITS.durationMs);
+  vi.advanceTimersByTime(LIMITS.durationMs);
   const result = await running;
-  assert.equal(result.status, "limited");
+  assert.strictEqual(result.status, "limited");
   assert.match(result.stopReason, /time limit/);
-  assert.equal(closed, true);
+  assert.strictEqual(closed, true);
 });
 
 test("unrelated continuously updating content does not starve readiness", async () => {
   const doc = document('<main class="ready">Ready</main><aside>Ads</aside>');
   const interval = setInterval(() => {
-    doc.querySelector("aside").textContent = String(Math.random());
+    doc.querySelector("aside")!.textContent = String(Math.random());
   }, 2);
   try {
     await waitForDom(doc, ".ready", signal(), 100, 15);
@@ -372,23 +383,23 @@ test("unrelated continuously updating content does not starve readiness", async 
 
 test("readiness timeout distinguishes missing matches from unstable matched content", async () => {
   const doc = document('<main class="ready">Ready</main>');
-  await assert.rejects(
+  await expect(
     waitForDom(doc, ".listing-card", signal(), 20, 5),
-    (error) => {
-      assert.equal(error.selector, ".listing-card");
-      assert.equal(error.matches, 0);
-      assert.match(error.message, /matched 0 elements/);
-      return true;
-    },
-  );
+  ).rejects.toSatisfy((error: unknown) => {
+    assert.ok(error instanceof ReadinessError);
+    assert.strictEqual(error.selector, ".listing-card");
+    assert.strictEqual(error.matches, 0);
+    assert.match(error.message, /matched 0 elements/);
+    return true;
+  });
   const interval = setInterval(() => {
-    doc.querySelector("main").textContent = String(Math.random());
+    doc.querySelector("main")!.textContent = String(Math.random());
   }, 2);
   try {
-    await assert.rejects(
-      waitForDom(doc, ".ready", signal(), 30, 15),
-      (error) => {
-        assert.equal(error.matches, 1);
+    await expect(waitForDom(doc, ".ready", signal(), 30, 15)).rejects.toSatisfy(
+      (error: unknown) => {
+        assert.ok(error instanceof ReadinessError);
+        assert.strictEqual(error.matches, 1);
         assert.match(error.message, /kept changing/);
         return true;
       },
@@ -399,9 +410,7 @@ test("readiness timeout distinguishes missing matches from unstable matched cont
 });
 
 test("DBA example extracts actual listing structure without illustrative classes", async () => {
-  const { dbaListings } = await import(
-    await bundle("extension/scraper/dba.ts")
-  );
+  const { dbaListings } = await import("../extension/scraper/dba.ts");
   const doc = document(
     '<article class="sf-search-ad"><a class="sf-search-ad-link" href="/recommerce/forsale/item/123"></a><h2>Machine</h2><div class="font-bold"><span>500 kr.</span></div><img src="https://images.dbastatic.dk/a.jpg"></article>',
   );
@@ -411,13 +420,13 @@ test("DBA example extracts actual listing structure without illustrative classes
     "list",
     "https://www.dba.dk/recommerce/forsale/search",
   );
-  assert.equal(page.items.length, 1);
-  assert.equal(page.items[0].price, "500 kr.");
-  assert.equal(
-    page.items[0].url,
+  assert.strictEqual(page.items.length, 1);
+  assert.strictEqual(page.items[0]!.price, "500 kr.");
+  assert.strictEqual(
+    page.items[0]!.url,
     "https://www.dba.dk/recommerce/forsale/item/123",
   );
-  assert.equal(page.diagnostics.length, 0);
+  assert.strictEqual(page.diagnostics.length, 0);
 });
 
 test("listing-only results omit detail from exported items", async () => {
@@ -427,7 +436,7 @@ test("listing-only results omit detail from exported items", async () => {
   assert.ok(result.items.length > 0);
   assert.ok(result.items.every((item) => !Object.hasOwn(item, "detail")));
   const exported = JSON.parse(resultJson(result));
-  assert.deepEqual(
+  assert.deepStrictEqual(
     exported.items,
     result.items.map(({ data }) => ({ data })),
   );

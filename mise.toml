@@ -21,7 +21,7 @@ run = ["mkdir -p .firefox-profile", "npm exec -- wxt --browser firefox --mv3"]
 [tasks.typecheck]
 description = "Prepare WXT types and check TypeScript"
 depends = ["install"]
-run = ["npm exec -- wxt prepare", "npm exec -- tsc --noEmit"]
+run = ["npm exec -- wxt prepare", "npm exec -- tsc --noEmit", "npm exec -- tsc --project tests/tsconfig.json"]
 
 [tasks.lint]
 description = "Check types, ESLint, Prettier, and Mozilla extension rules"
@@ -41,7 +41,7 @@ run = "npm exec -- wxt zip --browser firefox --mv3"
 [tasks.test]
 description = "Test scraping fixtures, runtime traversal, OAuth and background isolation"
 depends = ["install"]
-run = "node --test tests/*.test.mjs"
+run = "npm exec -- vitest run"
 
 [tasks."test:firefox"]
 description = "Verify synthetic loopback interception in a temporary headless Firefox profile"
