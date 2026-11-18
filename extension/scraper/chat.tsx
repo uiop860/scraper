@@ -88,14 +88,16 @@ export function Chat({
             aria-label="Message the scraper agent"
             placeholder="Extract titles, prices and links…"
             maxLength={4000}
-            rows={3}
+            rows={2}
           />
           <div className="composer-actions">
-            <span>Page samples are sent to OpenAI.</span>
-            <ComposerPrimitive.Send onClickCapture={preparePermission}>
-              Send
-            </ComposerPrimitive.Send>
-            <ComposerPrimitive.Cancel>Stop</ComposerPrimitive.Cancel>
+            {running ? (
+              <ComposerPrimitive.Cancel>Stop</ComposerPrimitive.Cancel>
+            ) : (
+              <ComposerPrimitive.Send onClickCapture={preparePermission}>
+                Send
+              </ComposerPrimitive.Send>
+            )}
           </div>
         </ComposerPrimitive.Root>
       </ThreadPrimitive.Root>

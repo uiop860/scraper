@@ -4,6 +4,11 @@ import { parseSpec, navigationUrl } from "./scraper/spec";
 import { extract, waitForDom, ReadinessError } from "./scraper/dom";
 
 export function registerContent() {
+  const context = globalThis as typeof globalThis & {
+    scraperWorkerRegistered?: boolean;
+  };
+  if (context.scraperWorkerRegistered) return;
+  context.scraperWorkerRegistered = true;
   // Loaded only into the worker's top frame. There is no window/postMessage bridge.
   browser.runtime.onMessage.addListener(async (message: unknown, sender) => {
     if (

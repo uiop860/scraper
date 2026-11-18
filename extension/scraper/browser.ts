@@ -14,7 +14,6 @@ export function browserDriver(
   ): Promise<ReturnType<typeof inspectPage>>;
 } {
   let closed = false;
-  let injectedUrl = "";
   async function load(url: string, signal: AbortSignal, reuse = false) {
     if (closed) throw new Error("Worker closed.");
     navigationUrl(url, url, origin);
@@ -77,17 +76,12 @@ export function browserDriver(
     const current = await browser.tabs.get(tab);
     if (!current.url) throw new Error("Worker URL unavailable.");
     navigationUrl(current.url, url, origin);
-    if (!(
-      reuse &&
-      previous?.url === current.url &&
-      injectedUrl === current.url
-    )) {
-      await browser.scripting.executeScript({
-        target: { tabId: tab, frameIds: [0] },
-        files: ["scraper-worker.js"],
-      });
-      injectedUrl = current.url;
-    }
+    // A URL does not identify a document: same-URL reloads discard listeners.
+    // Registration is idempotent, so refresh it even when navigation is reused.
+    await browser.scripting.executeScript({
+      target: { tabId: tab, frameIds: [0] },
+      files: ["scraper-worker.js"],
+    });
     signal.throwIfAborted();
   }
   return {

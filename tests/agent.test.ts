@@ -268,3 +268,29 @@ test("inspection returns selector evidence while excluding form values, editable
     });
   }
 });
+
+test("a summary after a passing test requests submission and traces tools without reasoning", async () => {
+  let round = 0;
+  const events: unknown[] = [];
+  const result = await generateScraper(
+    "titles",
+    start,
+    driver(),
+    async (input) => {
+      round++;
+      if (round === 1)
+        return { text: "", output: [inspection, call("test_scraper", args())] };
+      if (round === 2) return { text: "Configured and tested", output: [] };
+      expect(JSON.stringify(input.at(-1))).toContain("finish_scraper");
+      return { text: "", output: [call("finish_scraper", args())] };
+    },
+    signal(),
+    () => {},
+    (event, data) => events.push({ event, data }),
+  );
+  expect(result).toEqual(spec);
+  expect(events).toContainEqual(
+    expect.objectContaining({ event: "tool.result" }),
+  );
+  expect(events).toContainEqual({ event: "scraper.validated", data: spec });
+});

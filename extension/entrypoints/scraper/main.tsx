@@ -29,7 +29,7 @@ function Scraper() {
     const store = createScraperStore("");
     store.setState({
       source: emptySource.label,
-      status: "Describe the data you want to extract.",
+      status: "",
     });
     return store;
   });
@@ -49,9 +49,25 @@ function Scraper() {
   const setResult = storeField(store, "result");
   const setMessages = storeField(store, "messages");
   const setCancelling = storeField(store, "cancelling");
-  const [workerTab, setWorkerTab] = useState<number>();
   const [resultsOpen, setResultsOpen] = useState(false);
   const [exportUrl, setExportUrl] = useState("");
+  const resultsDialog = useRef<HTMLDialogElement>(null);
+  const [copyStatus, setCopyStatus] = useState("");
+  const diagnostics = useRef<{ time: string; event: string; data: unknown }[]>(
+    [],
+  );
+  const diagnosticBytes = useRef(0);
+  function trace(event: string, data: unknown) {
+    const entry = { time: new Date().toISOString(), event, data };
+    const size = new TextEncoder().encode(JSON.stringify(entry)).length;
+    if (diagnosticBytes.current + size > 4_000_000) return;
+    diagnosticBytes.current += size;
+    diagnostics.current.push(entry);
+  }
+  useEffect(() => {
+    if (resultsOpen) resultsDialog.current?.showModal();
+    else if (resultsDialog.current?.open) resultsDialog.current.close();
+  }, [resultsOpen]);
   const active = useRef<AbortController | undefined>(undefined);
   const windowId = useRef<number | undefined>(undefined);
   const live = useRef(false);
@@ -181,6 +197,14 @@ function Scraper() {
       (!model || !request.trim() || request.length > 4000)
     )
       return;
+    setCopyStatus("");
+    trace("operation.start", {
+      operation: request !== undefined ? "generate" : "scrape",
+      url: source.url,
+      model,
+      request,
+      spec: editor,
+    });
     const controller = new AbortController();
     active.current = controller;
     store.begin(request !== undefined ? "generating" : "scraping");
@@ -226,7 +250,6 @@ function Scraper() {
         throw new Error(worker?.error ?? "Worker unavailable.");
       opened = true;
       controller.signal.throwIfAborted();
-      setWorkerTab(worker.tab);
       if (
         worker.origin !== source.origin ||
         navigationUrl(worker.startUrl, source.url, source.origin) !== source.url
@@ -254,10 +277,12 @@ function Scraper() {
           },
           controller.signal,
           (message) => {
+            trace("agent.progress", message);
             setStatus(message);
             log += message + "\n";
             reviseReply(reply, log);
           },
+          trace,
         );
         controller.signal.throwIfAborted();
         const json = JSON.stringify(spec, null, 2);
@@ -277,6 +302,12 @@ function Scraper() {
               `${progress.phase}: ${progress.items} items; ${progress.visits} document visits. ${progress.url}`,
             ),
         );
+        trace("scrape.result", {
+          status: data.status,
+          stopReason: data.stopReason,
+          items: data.items.length,
+          pages: data.pages,
+        });
         setResult(data);
         setResultsOpen(true);
         setStatus(
@@ -289,6 +320,7 @@ function Scraper() {
           ? "Generation cancelled."
           : "Cancelled."
         : errorText(error);
+      trace("operation.error", message);
       setStatus(message);
       if (reply) reviseReply(reply, `${log}\n${message}`);
     } finally {
@@ -300,21 +332,18 @@ function Scraper() {
         await browser.runtime
           .sendMessage({ type: "scraper.worker.close" })
           .catch(() => {});
+      trace("operation.end", { status: store.getState().status });
       active.current = undefined;
       store.finish();
       setCancelling(false);
-      setWorkerTab(undefined);
       void refreshSource();
     }
   }
 
   return (
     <main>
-      <header>
-        <div>
-          <h1>Scraper</h1>
-          <span className="subtitle">Your data, structured.</span>
-        </div>
+      <SidebarAccount />
+      <div className="toolbar">
         <button
           id="settings"
           aria-label="Open account settings"
@@ -324,25 +353,54 @@ function Scraper() {
         >
           Settings ↗
         </button>
-      </header>
-      <section className="source-card" aria-label="Current page">
-        <span className="eyebrow">{busy ? "RUNNING ON" : "CURRENT PAGE"}</span>
-        <p id="source">{source.label}</p>
-        {workerTab !== undefined && (
-          <button
-            id="follow"
-            onClick={() => {
-              void browser.tabs.update(workerTab, { active: true });
-            }}
-          >
-            View working tab ↗
-          </button>
-        )}
-      </section>
-      <SidebarAccount />
-      <p className="hint">
-        {model ? `Model: ${model}.` : "Choose a model in Settings."} Sign in
-        through Settings to chat.
+        <button
+          id={operation === "scraping" ? "stop" : "run"}
+          disabled={
+            operation === "scraping"
+              ? controls.stop
+              : controls.run || !source.url
+          }
+          onClick={() => {
+            if (operation === "scraping") {
+              cancel();
+              return;
+            }
+            void execute(
+              browser.permissions.request({ origins: [`${source.origin}/*`] }),
+            );
+          }}
+        >
+          {operation === "scraping" ? "Cancel" : "Run scraper"}
+        </button>
+        <button disabled={!result || busy} onClick={() => setResultsOpen(true)}>
+          JSON output
+        </button>
+        <button
+          disabled={busy}
+          onClick={() => {
+            void navigator.clipboard
+              .writeText(
+                JSON.stringify(
+                  { version: 1, events: diagnostics.current },
+                  null,
+                  2,
+                ),
+              )
+              .then(
+                () => setCopyStatus(""),
+                () =>
+                  setCopyStatus("Could not copy diagnostic log. Try again."),
+              );
+          }}
+        >
+          Copy diagnostics
+        </button>
+      </div>
+      <p id="status" role="status" aria-live="polite">
+        {copyStatus ||
+          (model
+            ? status
+            : "Choose a model and sign in through Settings to chat.")}
       </p>
       <section id="chat" aria-label="Scraper conversation">
         <Chat
@@ -361,42 +419,25 @@ function Scraper() {
           onCancel={cancel}
         />
       </section>
-      <p id="status" role="status" aria-live="polite">
-        {status}
-      </p>
-      <div className="actions">
-        <button
-          id="run"
-          disabled={controls.run || !source.url}
-          onClick={() => {
-            void execute(
-              browser.permissions.request({ origins: [`${source.origin}/*`] }),
-            );
-          }}
-        >
-          Run scraper
-        </button>
-        <button id="stop" disabled={controls.stop} onClick={cancel}>
-          Cancel
-        </button>
-      </div>
-      <details
-        className="workspace"
-        open={resultsOpen}
-        onToggle={(event) => setResultsOpen(event.currentTarget.open)}
+      <dialog
+        ref={resultsDialog}
+        className="results-dialog"
+        aria-labelledby="results-title"
+        onClose={() => setResultsOpen(false)}
       >
-        <summary>Results</summary>
-        {exportUrl && !busy ? (
+        <header>
+          <h2 id="results-title">JSON output</h2>
+          <button type="button" onClick={() => setResultsOpen(false)}>
+            Close
+          </button>
+        </header>
+        <pre id="results">{result ? resultJson(result) : ""}</pre>
+        {exportUrl && (
           <a id="export" href={exportUrl} download="scraper-results.json">
             Download JSON results
           </a>
-        ) : (
-          <button id="export" disabled>
-            Download JSON results
-          </button>
         )}
-        <pre id="results">{result ? resultJson(result) : ""}</pre>
-      </details>
+      </dialog>
     </main>
   );
 }

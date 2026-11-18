@@ -121,6 +121,7 @@ export async function generateScraper(
   turn: Turn,
   signal: AbortSignal,
   progress: (message: string) => void = () => {},
+  trace: (event: string, data: unknown) => void = () => {},
 ): Promise<Spec> {
   const origin = new URL(start).origin;
   navigationUrl(start, start, origin);
@@ -165,20 +166,31 @@ export async function generateScraper(
       progress(`Agent thinking (${round + 1}/${AGENT_LIMITS.turns})…`);
       const response = await wait(turn(input, active));
       active.throwIfAborted();
+      trace("model.reply", { turn: round + 1, text: response.text });
       // Preserve reasoning items and encrypted reasoning for stateless continuation.
       input.push(...toResponseInputItems(response.output));
       const tools = response.output.filter(
         (item) => item.type === "function_call",
       );
-      if (!tools.length)
+      if (!tools.length) {
+        if (successful) {
+          progress("Test passed; requesting final scraper submission…");
+          input.push({
+            role: "user",
+            content: `Submit the tested scraper now using finish_scraper. Exact tested specification: ${successful}`,
+          });
+          continue;
+        }
         throw new Error(
-          response.text || "Agent stopped without a tested scraper.",
+          "Agent stopped without a tested scraper. " + response.text,
         );
+      }
       for (const call of tools) {
         active.throwIfAborted();
         if (++calls > AGENT_LIMITS.calls)
           throw new Error("Agent tool-call limit reached.");
         progress(`Agent: ${call.name} (${calls}/${AGENT_LIMITS.calls})`);
+        trace("tool.call", { name: call.name, arguments: call.arguments });
         let output: unknown;
         try {
           if (call.arguments.length > 80_000)
@@ -219,6 +231,7 @@ export async function generateScraper(
                 "Inspect the page and successfully test this exact specification before finishing.",
               );
             active.throwIfAborted();
+            trace("scraper.validated", spec);
             return spec;
           } else
             throw new Error(
@@ -245,6 +258,10 @@ export async function generateScraper(
             error:
               "Tool output exceeded sample limit. Inspect a narrower selector or request fewer fields.",
           });
+        trace("tool.result", {
+          name: call.name,
+          output: JSON.parse(serialized),
+        });
         input.push({
           type: "function_call_output",
           call_id: call.call_id,

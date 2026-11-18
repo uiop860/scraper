@@ -253,13 +253,22 @@ test("React sidebar follows active pages and cleans up browser subscriptions", a
     onRemoved = eventSource();
   let tab = { id: 2, url: "https://market.test/search" };
   let settingsOpened = 0,
-    disconnects = 0;
+    disconnects = 0,
+    sourceQueries = 0;
   const requests: MockData[] = [];
   const h = await mount(
     "extension/entrypoints/scraper/main.tsx",
     {
       windows: { getCurrent: async () => ({ id: 7 }) },
-      tabs: { onActivated, onUpdated, onRemoved, query: async () => [tab] },
+      tabs: {
+        onActivated,
+        onUpdated,
+        onRemoved,
+        query: async () => {
+          sourceQueries++;
+          return [tab];
+        },
+      },
       runtime: {
         getURL: (path: string) => `moz-extension://test/${path}`,
         connect: () => ({
@@ -279,11 +288,13 @@ test("React sidebar follows active pages and cleans up browser subscriptions", a
     "moz-extension://test/scraper.html?window=7",
   );
   try {
-    await waitFor(
-      () =>
-        h.document.querySelector<HTMLElement>("#source")?.textContent ===
-        tab.url,
+    await waitFor(() => sourceQueries === 1);
+    assert.strictEqual(h.document.querySelector("#source"), null);
+    assert.strictEqual(h.document.querySelector("details"), null);
+    assert.ok(
+      h.document.querySelector("dialog[aria-labelledby='results-title']"),
     );
+    assert.ok(h.document.querySelector(".composer"));
     h.document.querySelector<HTMLButtonElement>("#settings")!.click();
     assert.strictEqual(settingsOpened, 1);
     assert.strictEqual(h.document.querySelector<HTMLElement>("#spec"), null);
@@ -297,11 +308,7 @@ test("React sidebar follows active pages and cleans up browser subscriptions", a
     );
     tab = { id: 3, url: "https://another.test/list" };
     onActivated.emit({ tabId: 3, windowId: 7 });
-    await waitFor(
-      () =>
-        h.document.querySelector<HTMLElement>("#source")!.textContent ===
-        tab.url,
-    );
+    await waitFor(() => sourceQueries === 2);
     tab = { id: 3, url: "about:config" };
     onUpdated.emit(3, { url: tab.url });
     await waitFor(
