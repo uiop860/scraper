@@ -4,7 +4,15 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default defineConfig(
-  { ignores: ["build/**", "dist/**", ".wxt/**", ".output/**"] },
+  {
+    ignores: [
+      "build/**",
+      "dist/**",
+      ".wxt/**",
+      ".output/**",
+      ".firefox-profile/**",
+    ],
+  },
   {
     files: ["**/*.mjs"],
     extends: [js.configs.recommended],

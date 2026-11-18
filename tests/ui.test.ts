@@ -1,10 +1,11 @@
 import type { MockData, MockCallback } from "./mock-types.ts";
 import { assert, test } from "vitest";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
+import { extensionDependencyCode } from "../scripts/extension-dependencies.ts";
 import { parseHTML } from "linkedom";
 
 async function waitFor(check: () => unknown) {
@@ -90,6 +91,23 @@ async function mount(
           },
         }
       : { entryPoints: [entry] }),
+    plugins: [
+      {
+        name: "extension-dependencies",
+        setup(build) {
+          build.onLoad(
+            { filter: /node_modules\/(zod|react-dom)\/.*\.js$/ },
+            async ({ path }) => {
+              const source = await readFile(path, "utf8");
+              return {
+                contents: extensionDependencyCode(source, path) ?? source,
+                loader: "js",
+              };
+            },
+          );
+        },
+      },
+    ],
     bundle: true,
     format: "esm",
     platform: "browser",
@@ -446,6 +464,32 @@ test("page review offers highlighting and keeps detail samples available for con
     change!.click();
     await waitFor(() => collect.disabled);
     assert.strictEqual(confirm!.disabled, false);
+  } finally {
+    await h.close();
+  }
+});
+
+test("extension renderer rejects raw HTML instead of inserting it", async () => {
+  const h = await mount(
+    "",
+    {},
+    undefined,
+    `
+    import React from "react";
+    import { createRoot } from "react-dom/client";
+    const container = document.getElementById("root");
+    const root = createRoot(container, { onUncaughtError(error) { container.textContent = error.message; } });
+    root.render(<div dangerouslySetInnerHTML={{ __html: "<img src=x onerror=alert(1)>" }} />);
+    window.addEventListener("pagehide", () => root.unmount(), { once: true });
+  `,
+  );
+  try {
+    await waitFor(() =>
+      h.document
+        .getElementById("root")!
+        .textContent.includes("Raw HTML rendering is disabled"),
+    );
+    assert.strictEqual(h.document.querySelector("img"), null);
   } finally {
     await h.close();
   }

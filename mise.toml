@@ -26,7 +26,7 @@ run = ["npm exec -- wxt prepare", "npm exec -- tsc --noEmit", "npm exec -- tsc -
 [tasks.lint]
 description = "Check types, ESLint, Prettier, and Mozilla extension rules"
 depends = ["compile", "typecheck"]
-run = ["npm exec -- eslint . --max-warnings 0", "npm exec -- prettier . --check", "web-ext lint --source-dir .output/firefox-mv3"]
+run = ["npm exec -- eslint . --max-warnings 0", "npm exec -- prettier . --check", "web-ext lint --source-dir .output/firefox-mv3 --warnings-as-errors"]
 
 [tasks.format]
 description = "Format source and configuration with Prettier"

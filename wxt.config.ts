@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { env } from "node:process";
 import { defineConfig } from "wxt";
+import { extensionDependencies } from "./scripts/extension-dependencies";
 
 export default defineConfig({
   srcDir: "extension",
@@ -63,7 +64,10 @@ export default defineConfig({
     incognito: "not_allowed",
     optional_host_permissions: ["http://*/*", "https://*/*"],
   },
-  vite: () => ({ build: { target: "firefox142" } }),
+  vite: () => ({
+    plugins: [extensionDependencies()],
+    build: { target: "firefox142" },
+  }),
   webExt: {
     binaries: env.WEB_EXT_FIREFOX ? { firefox: env.WEB_EXT_FIREFOX } : {},
     firefoxProfile: resolve(".firefox-profile"),
