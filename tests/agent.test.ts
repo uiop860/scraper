@@ -91,6 +91,9 @@ test("agent inspects, sees failed extraction, revises, tests detail and paginati
     summary: [],
     encrypted_content: "opaque",
   };
+  const previews: Awaited<ReturnType<typeof testScraper>>[] = [];
+  const updates: string[] = [];
+  const traces: string[] = [];
   const result = await generateScraper(
     "Titles and descriptions across pages",
     start,
@@ -117,7 +120,29 @@ test("agent inspects, sees failed extraction, revises, tests detail and paginati
       return { text: "", output: [call("finish_scraper", args())] };
     },
     signal(),
+    (message) => updates.push(message),
+    (event) => traces.push(event),
+    (report) => previews.push(report),
   );
+  assert.strictEqual(previews.length, 1);
+  assert.strictEqual(previews[0]!.passed, true);
+  assert.strictEqual(previews[0]!.pages[0]!.samples[0]!.title, "Desk");
+  assert.strictEqual(
+    previews[0]!.pages[1]!.samples[0]!.description,
+    "A useful desk",
+  );
+  assert.ok(
+    updates.some((message) => message.includes("Adjusting the selection")),
+  );
+  assert.ok(
+    updates.every(
+      (message) =>
+        !/inspect_page|test_scraper|finish_scraper|Shadow DOM|diagnostics|HTML|nth-of-type/.test(
+          message,
+        ),
+    ),
+  );
+  assert.ok(traces.includes("tool.result"));
   assert.deepStrictEqual(result, spec);
   assert.strictEqual(d.closed, 1);
   assert.strictEqual(d.visits.length, 6);
@@ -179,7 +204,7 @@ test("off-origin tools never reach the driver and malformed calls are returned a
       },
       signal(),
     ),
-  ).rejects.toThrow(/Cannot complete/);
+  ).rejects.toThrow(/finish a working sample/);
   assert.strictEqual(d.visits.length, 0);
   assert.strictEqual(d.inspections.length, 0);
   assert.strictEqual(d.closed, 1);

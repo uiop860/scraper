@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import {
   AuiIf,
   AssistantRuntimeProvider,
@@ -23,12 +23,16 @@ function Message() {
 
 export function Chat({
   messages,
+  initialDraft = "",
   running,
   disabled,
   requestPermission,
   onSend,
   onCancel,
+  review,
 }: {
+  initialDraft?: string;
+  review?: ReactNode;
   messages: ThreadMessageLike[];
   running: boolean;
   disabled: boolean;
@@ -59,6 +63,13 @@ export function Chat({
     },
     onCancel: async () => onCancel(),
   });
+  const draftInitialized = useRef(false);
+  useEffect(() => {
+    if (draftInitialized.current) return;
+    draftInitialized.current = true;
+    if (initialDraft && !runtime.thread.composer.getState().text)
+      runtime.thread.composer.setText(initialDraft);
+  }, [initialDraft, runtime]);
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadPrimitive.Root className="chat-thread">
@@ -79,6 +90,7 @@ export function Chat({
               ) : null
             }
           </ThreadPrimitive.Messages>
+          {review}
         </ThreadPrimitive.Viewport>
         <ComposerPrimitive.Root
           className="composer"

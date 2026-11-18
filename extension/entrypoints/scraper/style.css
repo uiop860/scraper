@@ -352,3 +352,45 @@ button.pin-settings {
     transition: none;
   }
 }
+
+.review-card {
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 14px;
+  margin: 12px 0;
+  background: var(--surface);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.review-card h2 {
+  margin: 0;
+}
+.review-card h3 {
+  font-size: 13px;
+  margin: 16px 0 8px;
+}
+.sample-item {
+  border-top: 1px solid var(--border);
+  padding: 10px 0;
+}
+.review-card dl {
+  margin: 6px 0 0;
+}
+.review-card dt {
+  color: var(--muted);
+  text-transform: capitalize;
+  font-size: 12px;
+}
+.review-card dd {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+}
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.review-actions button:first-child {
+  background: var(--accent);
+  color: light-dark(white, #15171b);
+}

@@ -31,6 +31,7 @@ async function mount(
   entry: string,
   browser: MockData,
   url = "moz-extension://test/settings.html",
+  source?: string,
 ) {
   browser.storage ??= {
     local: { get: async () => ({}), set: async () => {} },
@@ -80,7 +81,15 @@ async function mount(
     });
   }
   const result = await build({
-    entryPoints: [entry],
+    ...(source
+      ? {
+          stdin: {
+            contents: source,
+            resolveDir: process.cwd(),
+            loader: "tsx" as const,
+          },
+        }
+      : { entryPoints: [entry] }),
     bundle: true,
     format: "esm",
     platform: "browser",
@@ -387,6 +396,56 @@ test("sidebar covers its content until auth status resolves, then shows the PIN 
       h.document.querySelector<HTMLInputElement>("#sidebar-pin")!.type,
       "password",
     );
+  } finally {
+    await h.close();
+  }
+});
+
+test("page review offers highlighting and keeps detail samples available for confirmation", async () => {
+  const h = await mount(
+    "",
+    {},
+    undefined,
+    `
+    import React, { useState } from "react";
+    import { mountPage } from "./extension/ui/root";
+    import { ScraperReview } from "./extension/scraper/review";
+    function ReviewTest() {
+      const [approved, setApproved] = useState(false);
+      return <><ScraperReview
+        approved={approved} pageReviewed={true} disabled={false} onPageReview={() => {}}
+        onConfirm={() => setApproved(true)} onChange={() => setApproved(false)}
+        review={{
+          json: "spec", url: "https://example.test/",
+          spec: { version: 1, name: "Listings", list: { itemSelector: "article", fields: { title: { selector: "h2", value: "text" } } }, detail: { linkField: "url", fields: { productTitle: { selector: "h1", value: "text" } } } },
+          report: { passed: true, coverage: { detail: true, pagination: "not configured" }, pages: [{ kind: "detail", url: "https://example.test/", count: 1, diagnostics: [], samples: [{ productTitle: "Oak desk", price: "500 kr", missing: null, seller: { name: "Alex" }, tags: ["Used", "Furniture"] }] }] }
+        }} /><button id="collect" disabled={!approved}>Run scraper</button></>;
+    }
+    mountPage(<ReviewTest />);
+  `,
+  );
+  try {
+    await waitFor(() => h.document.querySelector(".review-card"));
+    const card = h.document.querySelector<HTMLElement>(".review-card")!;
+    assert.ok(card.textContent.includes("Highlight example again"));
+    assert.ok(card.textContent.includes("Oak desk"));
+    assert.ok(card.textContent.includes("500 kr"));
+    assert.ok(card.textContent.includes("product Title"));
+    assert.ok(card.textContent.includes("No value found"));
+    assert.ok(card.textContent.includes("Alex"));
+    assert.ok(card.textContent.includes("Furniture"));
+    assert.ok(card.textContent.includes("Collects this listing page only"));
+    const collect = h.document.querySelector<HTMLButtonElement>("#collect")!;
+    assert.strictEqual(collect.disabled, true);
+    const [confirm, change] = card.querySelectorAll<HTMLButtonElement>(
+      ".review-actions button",
+    );
+    confirm!.click();
+    await waitFor(() => !collect.disabled);
+    assert.strictEqual(confirm!.disabled, true);
+    change!.click();
+    await waitFor(() => collect.disabled);
+    assert.strictEqual(confirm!.disabled, false);
   } finally {
     await h.close();
   }

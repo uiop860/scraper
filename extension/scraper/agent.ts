@@ -114,6 +114,8 @@ export async function testScraper(
   };
 }
 
+export type ScraperPreview = Awaited<ReturnType<typeof testScraper>>;
+
 export async function generateScraper(
   goal: string,
   start: string,
@@ -122,6 +124,7 @@ export async function generateScraper(
   signal: AbortSignal,
   progress: (message: string) => void = () => {},
   trace: (event: string, data: unknown) => void = () => {},
+  preview: (report: ScraperPreview) => void = () => {},
 ): Promise<Spec> {
   const origin = new URL(start).origin;
   navigationUrl(start, start, origin);
@@ -152,6 +155,7 @@ export async function generateScraper(
   ];
   let inspected = false;
   let successful = "";
+  let tested: ScraperPreview | undefined;
   let calls = 0;
   try {
     for (let round = 0; round < AGENT_LIMITS.turns; round++) {
@@ -163,7 +167,7 @@ export async function generateScraper(
         throw new Error(
           "Agent conversation limit reached. Try a more focused request.",
         );
-      progress(`Agent thinking (${round + 1}/${AGENT_LIMITS.turns})…`);
+      progress("Working out how to collect the fields you requested…");
       const response = await wait(turn(input, active));
       active.throwIfAborted();
       trace("model.reply", { turn: round + 1, text: response.text });
@@ -174,7 +178,7 @@ export async function generateScraper(
       );
       if (!tools.length) {
         if (successful) {
-          progress("Test passed; requesting final scraper submission…");
+          progress("The sample looks good. Preparing it for your review…");
           input.push({
             role: "user",
             content: `Submit the tested scraper now using finish_scraper. Exact tested specification: ${successful}`,
@@ -182,14 +186,20 @@ export async function generateScraper(
           continue;
         }
         throw new Error(
-          "Agent stopped without a tested scraper. " + response.text,
+          "I couldn’t finish a working sample. Try describing fewer fields or a specific example on the page.",
         );
       }
       for (const call of tools) {
         active.throwIfAborted();
         if (++calls > AGENT_LIMITS.calls)
           throw new Error("Agent tool-call limit reached.");
-        progress(`Agent: ${call.name} (${calls}/${AGENT_LIMITS.calls})`);
+        progress(
+          call.name === "inspect_page"
+            ? "Looking at the page to find the data you asked for…"
+            : call.name === "test_scraper"
+              ? "Trying the selected fields on a few items…"
+              : "Preparing sample values for you to check…",
+        );
         trace("tool.call", { name: call.name, arguments: call.arguments });
         let output: unknown;
         try {
@@ -206,23 +216,21 @@ export async function generateScraper(
               ),
             );
             output = inspection;
-            progress(
-              `Inspected ${inspection.url}: ${inspection.matches ?? "unknown"} matches for ${selector}; ${inspection.samples?.reduce((n, sample) => n + sample.length, 0) ?? 0} HTML characters${inspection.truncated ? " (truncated; use a narrower selector)" : ""}.`,
-            );
-            for (const context of inspection.shadowRoots ?? [])
-              progress(`Open Shadow DOM: ${context.selectorPrefix}`);
             inspected = true;
           } else if (call.name === "test_scraper") {
             successful = "";
+            tested = undefined;
             const spec = parseSpec(specArgs.parse(args).spec);
             const report = await wait(testScraper(spec, start, driver, active));
-            if (report.passed && inspected) successful = JSON.stringify(spec);
+            if (report.passed && inspected) {
+              successful = JSON.stringify(spec);
+              tested = report;
+            }
             progress(
-              `Test ${report.passed ? "passed" : "failed"}: ${report.pages.map((p) => `${p.kind}: ${p.count} rows, ${p.diagnostics.length} diagnostics`).join("; ")}. Detail: ${report.coverage.detail ? "sampled" : "not configured"}. Pagination: ${report.coverage.pagination}.`,
+              report.passed
+                ? "I found sample values. Checking that they match your request…"
+                : "Some fields did not come through. Adjusting the selection and trying again…",
             );
-            for (const page of report.pages)
-              for (const diagnostic of page.diagnostics.slice(0, 3))
-                progress(`${diagnostic.path}: ${diagnostic.message}`);
             output = report;
           } else if (call.name === "finish_scraper") {
             const spec = parseSpec(specArgs.parse(args).spec);
@@ -232,6 +240,7 @@ export async function generateScraper(
               );
             active.throwIfAborted();
             trace("scraper.validated", spec);
+            if (tested) preview(tested);
             return spec;
           } else
             throw new Error(
@@ -240,7 +249,7 @@ export async function generateScraper(
         } catch (error) {
           active.throwIfAborted();
           progress(
-            `Tool error: ${error instanceof Error ? error.message.slice(0, 1000) : "Tool failed."}`,
+            "That attempt did not work. Trying another way to find the data…",
           );
           output = {
             error:
