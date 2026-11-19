@@ -156,85 +156,46 @@ test("React callback relays the captured hash and displays completion", async ()
   }
 });
 
-for (const trigger of ["reset", "logout", "poll"]) {
-  test(`React settings clears a deleted account selection after ${trigger}`, async () => {
-    let configured = true;
-    let registrations = [
-      { clientId: "saved-client", subject: "user", email: "user@example.com" },
-    ];
-    const logins: MockData[] = [];
-    const page = await mount("settings", {
-      runtime: {
-        async sendMessage(message: MockData) {
-          if (message.type === "logout") {
-            configured = false;
-            registrations = [];
-          }
-          if (message.type === "login") logins.push(message);
-          return {
-            ok: true,
-            configured,
-            locked: false,
-            signedIn: false,
-            registrations,
-          };
-        },
+test("settings offers one account and reconnects the saved account", async () => {
+  const logins: MockData[] = [];
+  let signedIn = false;
+  const page = await mount("settings", {
+    runtime: {
+      async sendMessage(message: MockData) {
+        if (message.type === "login") {
+          logins.push(message);
+          signedIn = true;
+        }
+        return {
+          ok: true,
+          configured: true,
+          locked: false,
+          signedIn,
+          account: { clientId: "saved-client", subject: "user" },
+          registrations: [{ clientId: "other-client", subject: "other" }],
+        };
       },
-    });
-    try {
-      await page.until(
-        () => page.document.querySelectorAll("#accounts option").length === 2,
-      );
-      const select =
-        page.document.querySelector<HTMLSelectElement>("#accounts");
-      select!.querySelectorAll("option")[1]!.selected = true;
-      select!.dispatchEvent(
-        new globalThis.window.Event("change", { bubbles: true }),
-      );
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      page.document.querySelector<HTMLButtonElement>("#login")!.click();
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      await page.until(
-        () =>
-          logins.length === 1 &&
-          !page.document.querySelector<HTMLButtonElement>("#login")!.disabled,
-      );
-      assert.strictEqual(logins[0]!.clientId, "saved-client");
-
-      if (trigger === "poll") {
-        configured = false;
-        registrations = [];
-        page.poll();
-      } else
-        page.document.querySelector<HTMLInputElement>(`#${trigger}`)!.click();
-      await page.until(
-        () => page.document.querySelectorAll("#accounts option").length === 1,
-      );
-      assert.strictEqual(
-        page.document.querySelector<HTMLButtonElement>("#login")!.disabled,
-        true,
-      );
-
-      // Simulate configuring a new PIN in another settings tab, then polling.
-      configured = true;
-      page.poll();
-      await page.until(
-        () =>
-          !page.document.querySelector<HTMLButtonElement>("#login")!.disabled,
-      );
-      page.document.querySelector<HTMLButtonElement>("#login")!.click();
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      await page.until(
-        () =>
-          logins.length === 2 &&
-          !page.document.querySelector<HTMLButtonElement>("#login")!.disabled,
-      );
-      assert.strictEqual(logins[1]!.clientId, undefined);
-    } finally {
-      page.close();
-    }
+    },
   });
-}
+  try {
+    await page.until(
+      () =>
+        page.document.querySelector<HTMLButtonElement>("#login")?.disabled ===
+        false,
+    );
+    assert.strictEqual(page.document.querySelector("#accounts"), null);
+    page.document.querySelector<HTMLButtonElement>("#login")!.click();
+    await page.until(
+      () =>
+        logins.length === 1 &&
+        page.document.querySelector<HTMLButtonElement>("#login")!.disabled,
+    );
+    assert.strictEqual(logins[0]!.clientId, "saved-client");
+    assert.strictEqual(page.document.querySelector("#accounts"), null);
+  } finally {
+    page.close();
+  }
+});
 
 test("settings restores the saved model across sessions and keeps it while locked", async () => {
   const saved = { selectedModel: "remembered-model" };
