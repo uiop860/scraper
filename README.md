@@ -105,6 +105,8 @@ Run `mise run test` for mocked authentication tests and `mise run test:firefox`
 for synthetic redirect and encrypted-storage checks in a temporary Firefox profile. See
 [authentication notes](docs/authentication.md) for security boundaries, limitations,
 and manual verification steps. The starter's earlier no-data declaration has been
-replaced with required `authenticationInfo` and optional `websiteContent` and `browsingActivity`. AI generation sends page samples only after permission is granted; manual scraping stays local.
+replaced with required `authenticationInfo` and optional `websiteContent` and
+`browsingActivity`. The AI agent sends page samples to OpenAI when you start a
+generation run after granting permission. See the [Privacy Policy](PRIVACY.md).
 
 See [application state](docs/state.md) for the Zustand stores and extension context boundaries.
