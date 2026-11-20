@@ -419,7 +419,7 @@ test("sidebar covers its content until auth status resolves, then shows the PIN 
   }
 });
 
-test("page review offers highlighting and keeps detail samples available for confirmation", async () => {
+test("sample review shows listing and detail values and requires confirmation", async () => {
   const h = await mount(
     "",
     {},
@@ -431,12 +431,12 @@ test("page review offers highlighting and keeps detail samples available for con
     function ReviewTest() {
       const [approved, setApproved] = useState(false);
       return <><ScraperReview
-        approved={approved} pageReviewed={true} disabled={false} onPageReview={() => {}}
+        approved={approved} disabled={false}
         onConfirm={() => setApproved(true)} onChange={() => setApproved(false)}
         review={{
           json: "spec", url: "https://example.test/",
           spec: { version: 1, name: "Listings", list: { itemSelector: "article", fields: { title: { selector: "h2", value: "text" } } }, detail: { linkField: "url", fields: { productTitle: { selector: "h1", value: "text" } } } },
-          report: { passed: true, coverage: { detail: true, pagination: "not configured" }, pages: [{ kind: "detail", url: "https://example.test/", count: 1, diagnostics: [], samples: [{ productTitle: "Oak desk", price: "500 kr", missing: null, seller: { name: "Alex" }, tags: ["Used", "Furniture"] }] }] }
+          report: { passed: true, coverage: { detail: true, pagination: "not configured" }, pages: [{ kind: "list", url: "https://example.test/", count: 3, diagnostics: [], samples: [{ title: "First listing" }, { title: "Second listing" }, { title: "Third listing" }] }, { kind: "detail", url: "https://example.test/", count: 1, diagnostics: [], samples: [{ productTitle: "Oak desk", price: "500 kr", missing: null, seller: { name: "Alex" }, tags: ["Used", "Furniture"] }] }] }
         }} /><button id="collect" disabled={!approved}>Run scraper</button></>;
     }
     mountPage(<ReviewTest />);
@@ -445,7 +445,10 @@ test("page review offers highlighting and keeps detail samples available for con
   try {
     await waitFor(() => h.document.querySelector(".review-card"));
     const card = h.document.querySelector<HTMLElement>(".review-card")!;
-    assert.ok(card.textContent.includes("Highlight example again"));
+    assert.ok(card.textContent.includes("Is this the data you wanted?"));
+    assert.ok(card.textContent.includes("First listing"));
+    assert.ok(card.textContent.includes("Second listing"));
+    assert.ok(!card.textContent.includes("Third listing"));
     assert.ok(card.textContent.includes("Oak desk"));
     assert.ok(card.textContent.includes("500 kr"));
     assert.ok(card.textContent.includes("product Title"));

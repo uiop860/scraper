@@ -319,3 +319,171 @@ test("a summary after a passing test requests submission and traces tools withou
   );
   expect(events).toContainEqual({ event: "scraper.validated", data: spec });
 });
+
+test("Marketplace item previews reject following recommendations", async () => {
+  const d = driver();
+  await expect(
+    testScraper(
+      spec,
+      "https://www.facebook.com/marketplace/item/123/",
+      d,
+      signal(),
+    ),
+  ).rejects.toThrow("single Marketplace item");
+  expect(d.visits).toHaveLength(1);
+});
+
+test("Marketplace search continues from a list-only sample to a tested item description", async () => {
+  const url = "https://www.facebook.com/marketplace/search/";
+  const item = "https://www.facebook.com/marketplace/item/123/";
+  const d = driver();
+  const visit = d.visit.bind(d);
+  d.visit = async (...params) => {
+    const snapshot = await visit(...params);
+    if (params[1] === "list") snapshot.items[0]!.url = item;
+    return snapshot;
+  };
+  const listOnly = { version: 1, name: "Listings", list: spec.list };
+  const full = { ...listOnly, detail: spec.detail };
+  let round = 0;
+  const generated = await generateScraper(
+    "Get listings and their descriptions",
+    url,
+    d,
+    async (input) => {
+      round++;
+      if (round === 1)
+        return {
+          text: "",
+          output: [
+            call("inspect_page", { url, selector: "body" }),
+            call("test_scraper", { spec: JSON.stringify(listOnly) }),
+          ],
+        };
+      if (round === 2) {
+        expect(toolOutput(input).passed).toBe(false);
+        expect(toolOutput(input).itemInspection.url).toBe(item);
+        return {
+          text: "Descriptions are unavailable on the cards.",
+          output: [],
+        };
+      }
+      if (round === 3) {
+        expect(JSON.stringify(input.at(-1))).toContain(item);
+        return {
+          text: "",
+          output: [
+            call("inspect_page", { url: item, selector: "body" }),
+            call("test_scraper", { spec: JSON.stringify(full) }),
+          ],
+        };
+      }
+      expect(toolOutput(input).passed).toBe(true);
+      return {
+        text: "",
+        output: [call("finish_scraper", { spec: JSON.stringify(full) })],
+      };
+    },
+    signal(),
+  );
+  expect(generated).toEqual(full);
+  expect(d.visits).toContain(item);
+});
+
+test("direct detail testing reads the requested item without collecting listings", async () => {
+  const d = driver();
+  const item = "https://market.test/detail/1";
+  let round = 0;
+  await generateScraper(
+    "titles and descriptions",
+    start,
+    d,
+    async (input) => {
+      round++;
+      if (round === 1)
+        return {
+          text: "",
+          output: [
+            inspection,
+            call("test_detail_page", {
+              url: item,
+              spec: JSON.stringify({ detail: { fields: spec.detail.fields } }),
+            }),
+          ],
+        };
+      if (round === 2) {
+        expect(toolOutput(input).samples[0].description).toBe("A useful desk");
+        expect(d.visits).toEqual([item]);
+        return { text: "", output: [call("finish_scraper", args())] };
+      }
+      if (round === 3) {
+        expect(toolOutput(input).error).toContain("successfully test");
+        return { text: "", output: [call("test_scraper", args())] };
+      }
+      return { text: "", output: [call("finish_scraper", args())] };
+    },
+    signal(),
+  );
+});
+
+test("generation can refine a scraper beyond twelve turns", async () => {
+  const d = driver();
+  let round = 0;
+  const generated = await generateScraper(
+    "titles and descriptions",
+    start,
+    d,
+    async () => {
+      round++;
+      if (round <= 13) return { text: "", output: [inspection] };
+      return {
+        text: "",
+        output: [
+          call(round === 14 ? "test_scraper" : "finish_scraper", args()),
+        ],
+      };
+    },
+    signal(),
+  );
+  expect(round).toBe(15);
+  expect(generated).toEqual(spec);
+});
+
+test("an early loading-shell conclusion waits for Marketplace cards and resumes generation", async () => {
+  const startUrl = "https://www.facebook.com/marketplace/search/";
+  const d = driver();
+  const probes: string[] = [];
+  const extended = {
+    ...d,
+    async probe(url: string) {
+      probes.push(url);
+      return { url, matches: 1, samples: [{ text: "Desk", selector: "a" }] };
+    },
+  };
+  let round = 0;
+  const generated = await generateScraper(
+    "Get titles",
+    startUrl,
+    extended,
+    async (input) => {
+      round++;
+      if (round === 1)
+        return {
+          text: "",
+          output: [call("inspect_page", { url: startUrl, selector: "body" })],
+        };
+      if (round === 2)
+        return { text: "Only a loading shell is available.", output: [] };
+      if (round === 3) {
+        expect(JSON.stringify(input.at(-1))).toContain(
+          "waited for listing cards",
+        );
+        return { text: "", output: [call("test_scraper", args())] };
+      }
+      return { text: "", output: [call("finish_scraper", args())] };
+    },
+    signal(),
+  );
+  expect(probes).toEqual([startUrl]);
+  expect(generated).toEqual(spec);
+});

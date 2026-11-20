@@ -48,3 +48,27 @@ test("reinjecting into one document registers only one listener", async () => {
   registerContent();
   expect(addListener).toHaveBeenCalledTimes(1);
 });
+
+test("Marketplace item tracking changes reuse the loaded item document", async () => {
+  const url = "https://www.facebook.com/marketplace/item/123/?ref=search";
+  const update = vi.fn();
+  const inject = vi.fn();
+  vi.stubGlobal("browser", {
+    tabs: {
+      get: async () => ({ url, status: "complete" }),
+      update,
+      sendMessage: async () => ({
+        ok: true,
+        inspection: { url, samples: [], shadowRoots: [] },
+      }),
+    },
+    scripting: { executeScript: inject },
+  });
+  await browserDriver(1, "https://www.facebook.com").inspect(
+    url + "&__tn__=tracking",
+    "body",
+    new AbortController().signal,
+  );
+  expect(update).not.toHaveBeenCalled();
+  expect(inject).toHaveBeenCalledOnce();
+});

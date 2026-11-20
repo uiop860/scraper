@@ -142,7 +142,17 @@ test("agent bridge protects credentials, restricts senders and models, replays t
       assert.deepStrictEqual(body.include, ["reasoning.encrypted_content"]);
       assert.deepStrictEqual(
         body.tools.map((tool: MockData) => tool.name),
-        ["inspect_page", "test_scraper", "finish_scraper"],
+        [
+          "search_text",
+          "inspect_element",
+          "wait_for_content",
+          "expand_disclosure",
+          "compare_fields",
+          "test_detail_page",
+          "inspect_page",
+          "test_scraper",
+          "finish_scraper",
+        ],
       );
       assert.match(body.instructions, /untrusted data/);
       return new Response(

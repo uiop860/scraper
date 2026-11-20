@@ -8,7 +8,6 @@ import { createScraperStore, scraperControls } from "../../state/scraper";
 import { storeField } from "../../state/field";
 import { Chat } from "../../scraper/chat";
 import { validateSelector } from "../../scraper/selectors";
-import { reviewPage, dismissPageReview } from "../../scraper/page-review";
 import { ScraperReview, type Review } from "../../scraper/review";
 import { generateScraper } from "../../scraper/agent";
 import { LIMITS, navigationUrl, parseSpec } from "../../scraper/spec";
@@ -53,29 +52,10 @@ function Scraper() {
   const setCancelling = storeField(store, "cancelling");
   const [review, setReview] = useState<Review>();
   const [approved, setApproved] = useState(false);
-  const [pageReviewed, setPageReviewed] = useState(false);
-  const [pageReviewing, setPageReviewing] = useState(false);
-  const reviewSequence = useRef(0);
-  const reviewTab = useRef<number | undefined>(undefined);
-  const stopPageReview = useCallback(() => {
-    reviewSequence.current++;
-    const tab = reviewTab.current;
-    reviewTab.current = undefined;
-    if (tab !== undefined)
-      void browser.scripting
-        .executeScript({
-          target: { tabId: tab, frameIds: [0] },
-          func: dismissPageReview,
-        })
-        .catch(() => {});
-  }, []);
   const reviewCurrent = review?.json === editor && review?.url === source.url;
   useEffect(() => {
     setApproved(false);
-    setPageReviewed(false);
-    setPageReviewing(false);
-    return stopPageReview;
-  }, [source.url, source.tab, stopPageReview]);
+  }, [source.url, source.tab]);
   const [resultsOpen, setResultsOpen] = useState(false);
   const [exportUrl, setExportUrl] = useState("");
   const resultsDialog = useRef<HTMLDialogElement>(null);
@@ -217,101 +197,6 @@ function Scraper() {
     );
   }
 
-  const confirmOnPage = useCallback(
-    async (automatic = false) => {
-      if (
-        !review ||
-        !reviewCurrent ||
-        busy ||
-        pageReviewing ||
-        source.tab === undefined
-      )
-        return;
-      const permission = automatic
-        ? browser.permissions.contains({ origins: [`${source.origin}/*`] })
-        : browser.permissions.request({ origins: [`${source.origin}/*`] });
-      stopPageReview();
-      const sequence = reviewSequence.current;
-      const tab = source.tab;
-      reviewTab.current = tab;
-      setApproved(false);
-      setPageReviewed(false);
-      setPageReviewing(true);
-      setStatus(
-        "Check the highlighted field on the page. Choose ✓ if it’s right or ✕ if it’s wrong.",
-      );
-      try {
-        if (!(await permission)) throw new Error("Site access was declined.");
-        const current = await browser.tabs.get(tab);
-        if (sequence !== reviewSequence.current) return;
-        if (current.url !== review.url)
-          throw new Error(
-            "The page changed. Generate a new example from this page.",
-          );
-        const answer = await reviewPage(tab, review.spec);
-        if (sequence !== reviewSequence.current) return;
-        if (answer?.status === "confirmed") {
-          setPageReviewed(true);
-          setApproved(!review.spec.detail);
-          setStatus(
-            review.spec.detail
-              ? "Listing fields confirmed. Check the detail-page samples below before running."
-              : "Fields confirmed. Select Run scraper when you’re ready.",
-          );
-        } else if (answer?.status === "rejected") {
-          const message = `The highlighted ${answer.field.replaceAll("_", " ")} was wrong. What should I use instead? Describe the correct element on the page.`;
-          setMessages((previous) => [
-            ...previous,
-            { id: crypto.randomUUID(), role: "assistant", content: message },
-          ]);
-          setStatus("Tell me what to change, then I’ll build a new example.");
-          document
-            .querySelector<HTMLTextAreaElement>(".composer textarea")
-            ?.focus();
-        } else if (answer?.status === "unavailable") {
-          setStatus(
-            `I couldn’t highlight ${answer.field.replaceAll("_", " ")} on this page. Ask me to revise the selection.`,
-          );
-        } else
-          setStatus(
-            "Page review closed. You can highlight the example again when you’re ready.",
-          );
-      } catch (error) {
-        if (sequence === reviewSequence.current) setStatus(errorText(error));
-      } finally {
-        if (sequence === reviewSequence.current) {
-          setPageReviewing(false);
-          reviewTab.current = undefined;
-        }
-      }
-    },
-    [
-      review,
-      reviewCurrent,
-      busy,
-      pageReviewing,
-      source.tab,
-      source.origin,
-      stopPageReview,
-      setStatus,
-      setMessages,
-    ],
-  );
-
-  const automaticReview = useRef<Review | undefined>(undefined);
-  useEffect(() => {
-    if (
-      !review ||
-      !reviewCurrent ||
-      busy ||
-      pageReviewing ||
-      automaticReview.current === review
-    )
-      return;
-    automaticReview.current = review;
-    void confirmOnPage(true);
-  }, [review, reviewCurrent, busy, pageReviewing, confirmOnPage]);
-
   async function execute(permission: Promise<boolean>, request?: string) {
     if (active.current || store.getState().busy || !source.url) return;
     if (
@@ -337,8 +222,6 @@ function Scraper() {
     let opened = false;
     if (request !== undefined) {
       setApproved(false);
-      stopPageReview();
-      setPageReviewed(false);
       setReview(undefined);
       setValidated("");
       reply = crypto.randomUUID();
@@ -421,7 +304,7 @@ function Scraper() {
         if (preview)
           setReview({ spec, json, url: source.url, report: preview });
         const message =
-          "I’m highlighting the fields on one listing. Choose ✓ for a correct field or ✕ to tell me it’s wrong.";
+          "I scraped a few sample values. Is this the data you wanted? Confirm the samples below, or tell me what to change.";
         setStatus(message);
         reviseReply(reply, message);
       } else {
@@ -544,7 +427,7 @@ function Scraper() {
           }
           messages={messages}
           running={busy}
-          disabled={controls.generate || pageReviewing}
+          disabled={controls.generate}
           requestPermission={() =>
             browser.permissions.request({
               origins: [`${source.origin}/*`],
@@ -560,10 +443,7 @@ function Scraper() {
               <ScraperReview
                 review={review}
                 approved={approved}
-                pageReviewed={pageReviewed}
-                pageReviewing={pageReviewing}
-                onPageReview={() => void confirmOnPage()}
-                disabled={busy || pageReviewing}
+                disabled={busy}
                 onConfirm={() => {
                   setApproved(true);
                   setStatus(
@@ -571,8 +451,6 @@ function Scraper() {
                   );
                 }}
                 onChange={() => {
-                  stopPageReview();
-                  setPageReviewed(false);
                   setApproved(false);
                   setStatus("");
                   setMessages((previous) => [

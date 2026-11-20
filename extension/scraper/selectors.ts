@@ -94,3 +94,39 @@ export function shadowContexts(doc: Document) {
   }
   return contexts.slice(1);
 }
+
+// Anchor paths at unique semantic elements instead of serializing every layout div.
+export function elementSelector(element: Element): string {
+  const root = element.getRootNode() as Document | ShadowRoot;
+  const parts: string[] = [];
+  let current: Element | null = element;
+  while (current) {
+    const anchors = [
+      ...["id", "data-testid", "role", "itemprop"].flatMap((name) => {
+        const value = current!.getAttribute(name);
+        return value ? ["[" + name + "=" + JSON.stringify(value) + "]"] : [];
+      }),
+      current.localName,
+    ];
+    const anchor = anchors.find((selector) => {
+      try {
+        return root.querySelectorAll(selector).length === 1;
+      } catch {
+        return false;
+      }
+    });
+    if (anchor) {
+      parts.unshift(anchor);
+      break;
+    }
+    const parent = current.parentNode as ParentNode | null;
+    parts.unshift(
+      ":nth-child(" +
+        (parent ? Array.from(parent.children).indexOf(current) + 1 : 1) +
+        ")",
+    );
+    current = current.parentElement;
+  }
+  const host = "host" in root ? root.host : undefined;
+  return (host ? elementSelector(host) + " >>> " : "") + parts.join(">");
+}

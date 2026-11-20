@@ -26,7 +26,11 @@ const common = {
   multiple: z.boolean().optional(),
 };
 const leaf = z.union([
-  z.strictObject({ ...common, value: z.literal("text") }),
+  z.strictObject({
+    ...common,
+    value: z.literal("text"),
+    expandDescription: z.literal(true).optional(),
+  }),
   z.strictObject({
     ...common,
     value: z.literal("attribute"),
@@ -55,6 +59,7 @@ export const specSchema = z.strictObject({
   name: z.string().trim().min(1).max(120),
   list: z.strictObject({
     itemSelector: selector,
+    scrollToItems: z.number().int().min(1).max(LIMITS.items).optional(),
     waitFor: wait.optional(),
     fields,
   }),
@@ -129,6 +134,10 @@ export function parseSpec(
     !Object.hasOwn(spec.list.fields, spec.identityField)
   )
     throw new Error("identityField must reference a listing field.");
+  if (spec.list.scrollToItems && (!spec.identityField || spec.pagination))
+    throw new Error(
+      "Scrolling requires an identityField and cannot be combined with next-link pagination.",
+    );
   if (spec.pagination) checkSelector(spec.pagination.selector);
   return spec;
 }

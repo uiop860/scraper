@@ -1,4 +1,4 @@
-import { queryElements, shadowContexts } from "./selectors";
+import { elementSelector, queryElements, shadowContexts } from "./selectors";
 
 // Read DOM structure without constructing elements or invoking page code.
 export function inspectPage(selector: string) {
@@ -42,11 +42,19 @@ export function inspectPage(selector: string) {
       "data-testid",
       "itemprop",
       "alt",
+      "src",
+      "dir",
+      ...(node.matches('meta[property^="og:"],meta[name="description"]')
+        ? ["name", "property", "content"]
+        : []),
       "title",
     ]) {
       const value = node.getAttribute(name);
       if (value && characters > 0) {
-        const part = value.slice(0, Math.min(300, characters));
+        const part = value.slice(
+          0,
+          Math.min(name === "class" ? 100 : 300, characters),
+        );
         if (part.length < value.length) truncated = true;
         characters -= part.length;
         html += ` ${name}="${escape(part)}"`;
@@ -81,7 +89,44 @@ export function inspectPage(selector: string) {
   const samples = Array.from(roots)
     .slice(0, 8)
     .map((node) => copy(node, 0));
+  // Deep application layouts often exhaust the HTML preview before reaching text.
+  // Supply independently bounded text regions with selectors that can be tested.
+  let regionBudget = 18_000;
+  const textRegions: { selector: string; text: string }[] = [];
+  for (const { root } of [
+    { root: document },
+    ...shadowContexts(document),
+  ].slice(0, 8)) {
+    const candidates = Array.from(
+      root.querySelectorAll(
+        "h1,h2,[dir=auto],[itemprop=description],[data-testid*=description]",
+      ),
+    ).sort(
+      (a, b) =>
+        Number(!!b.closest("main,[role=main]")) -
+        Number(!!a.closest("main,[role=main]")),
+    );
+    for (const node of candidates) {
+      if (textRegions.length >= 60 || regionBudget <= 0) break;
+      if (node.closest("script,style,input,textarea,select,[contenteditable]"))
+        continue;
+      // Prefer the smallest text region to avoid repeated copies of the page.
+      if (node.querySelector("[dir=auto]") && !node.matches("h1,h2")) continue;
+      const text = (node.textContent ?? "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 700);
+      if (!text) continue;
+      const selector = elementSelector(node);
+      if (selector.length > 500) continue;
+      const size = selector.length + text.length;
+      if (size > regionBudget) continue;
+      regionBudget -= size;
+      textRegions.push({ selector, text });
+    }
+  }
   return {
+    textRegions,
     url: location.href,
     title: document.title.slice(0, 200),
     matches: roots.length,

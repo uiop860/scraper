@@ -43,46 +43,30 @@ function fieldLabel(name: string) {
 export function ScraperReview({
   review,
   approved,
-  pageReviewed = false,
-  pageReviewing = false,
-  onPageReview,
   disabled,
   onConfirm,
   onChange,
 }: {
   review: Review;
   approved: boolean;
-  pageReviewed?: boolean;
-  pageReviewing?: boolean;
-  onPageReview?: () => void;
   disabled: boolean;
   onConfirm: () => void;
   onChange: () => void;
 }) {
   return (
     <section className="review-card" aria-labelledby="review-title">
-      <h2 id="review-title">Check one example on the page</h2>
-      <p>
-        Highlight the fields on the first listing. Use ✓ for a correct field and
-        ✕ for a wrong one.
-      </p>
-      <button disabled={disabled} onClick={onPageReview}>
-        {pageReviewing
-          ? "Waiting for your choices on the page…"
-          : pageReviewed
-            ? "Highlight example again"
-            : "Highlight example on page"}
-      </button>
+      <h2 id="review-title">Is this the data you wanted?</h2>
+      <p>Check these scraped samples before running the full scraper.</p>
       {review.report.pages
-        .filter((page) => page.kind === "detail")
+        .filter((page) => page.kind === "list" || page.kind === "detail")
         .map((page) => (
-          <div key={page.kind}>
+          <div key={`${page.kind}:${page.url}`}>
             <h3>
               {page.kind === "detail"
                 ? "From an item’s detail page"
                 : "From the listing page"}
             </h3>
-            {page.samples.slice(0, 1).map((sample, index) => (
+            {page.samples.slice(0, 2).map((sample, index) => (
               <div className="sample-item" key={index}>
                 <span className="hint">Sample {index + 1}</span>
                 <dl>
@@ -111,14 +95,9 @@ export function ScraperReview({
         Samples do not verify every item on the site.
       </p>
       <div className="review-actions">
-        {review.spec.detail && (
-          <button
-            disabled={disabled || approved || !pageReviewed}
-            onClick={onConfirm}
-          >
-            {approved ? "Confirmed" : "Detail samples are correct too"}
-          </button>
-        )}
+        <button disabled={disabled || approved} onClick={onConfirm}>
+          {approved ? "Confirmed" : "Yes, this is right"}
+        </button>
         <button disabled={disabled} onClick={onChange}>
           I want changes
         </button>

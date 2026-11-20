@@ -20,11 +20,19 @@ const server = createServer((req, res) => {
     return;
   }
   res.setHeader("Content-Type", "text/html");
+  if (req.url === "/scroll") {
+    res.end(`<div style="height:200vh"></div><article>First</article>
+      <script>addEventListener('scroll', () => {
+        document.querySelector('article').textContent = 'Second';
+      }, {once:true});</script>`);
+    return;
+  }
   if (req.url.startsWith("/detail/")) {
     res.end(`<podium-layout></podium-layout><script>
       setTimeout(() => {
         const root = document.querySelector('podium-layout').attachShadow({mode:'open'});
-        root.innerHTML = '<section data-testid="description"><p class="description">Detail ${req.url.at(-1)}</p></section>';
+        root.innerHTML = '<section data-testid="description"><p class="description" dir="auto">Preview<button>Se mere</button></p></section>';
+        root.querySelector('button').onclick = () => root.querySelector('p').textContent = 'Detail ${req.url.at(-1)}';
       }, 150);
     </script>`);
     return;
@@ -81,7 +89,7 @@ try {
     const origin = ${JSON.stringify(origin)};
     const spec = {version:1, name:'Firefox fixture', list:{itemSelector:'article', fields:{
       title:{selector:'h2',value:'text'}, url:{selector:'a',value:'attribute',attribute:'href',resolveUrl:true}}},
-      detail:{linkField:'url', waitFor:{selector:'podium-layout >>> .description'}, fields:{description:{selector:'podium-layout >>> .description',value:'text'}}},
+      detail:{linkField:'url', waitFor:{selector:'podium-layout >>> .description'}, fields:{description:{selector:'podium-layout >>> .description',value:'text',expandDescription:true}}},
       pagination:{type:'next',selector:'a[rel=next]'}};
     async function open(url) {
       const source = await browser.tabs.create({url:'about:blank',active:false});
@@ -105,11 +113,13 @@ try {
         const name = turn <= 2 ? 'inspect_page' : turn === 3 ? 'test_scraper' : 'finish_scraper';
         if (turn === 2) {
           const inspected = JSON.parse(input.at(-1).output);
+          if (!inspected.textRegions?.some(region => region.text.includes('Machine 1'))) throw new Error('Ordinary DOM text regions missing');
           if (!inspected.samples?.some(html => html.includes('Machine 1'))) throw new Error('Agent inspection missed rendered content: '+JSON.stringify(inspected));
         }
         if (turn === 3) {
           const inspected = JSON.parse(input.at(-1).output);
-          if (!inspected.shadowRoots?.some(context => context.regions.some(region => region.text.includes('Detail 1')))) throw new Error('Shadow DOM was not discoverable: '+JSON.stringify(inspected));
+          if (!inspected.textRegions?.some(region => region.text.includes('Preview') && region.selector.includes('>>>'))) throw new Error('Deep text regions unavailable: '+JSON.stringify(inspected));
+          if (!inspected.shadowRoots?.some(context => context.regions.some(region => region.text.includes('Preview')))) throw new Error('Shadow DOM was not discoverable: '+JSON.stringify(inspected));
         }
         if (turn === 4) {
           const tested = JSON.parse(input.at(-1).output);
@@ -120,13 +130,38 @@ try {
       }, new AbortController().signal);
       if (JSON.stringify(agentSpec) !== JSON.stringify(spec)) throw new Error('Agent JSON changed');
       await browser.tabs.remove(generated.source.id);
+      const probing = await open(origin + '/detail/1');
+      const probe = browserDriver(probing.worker.tab,origin);
+      const itemUrl = origin + '/detail/1';
+      const ready = await probe.probe(itemUrl,'wait_for_content',{url:itemUrl,selector:'podium-layout >>> .description',text:'Preview',absentSelector:''},new AbortController().signal);
+      if (ready.matches !== 1) throw new Error('Content wait failed');
+      const found = await probe.probe(itemUrl,'search_text',{url:itemUrl,text:'Preview'},new AbortController().signal);
+      if (found.matches.length !== 1) throw new Error('Text search failed');
+      const surroundings = await probe.probe(itemUrl,'inspect_element',{url:itemUrl,selector:found.matches[0].element.selector},new AbortController().signal);
+      if (!surroundings.samples[0].children.length) throw new Error('Element inspection failed');
+      const expanded = await probe.probe(itemUrl,'expand_disclosure',{url:itemUrl,selector:'podium-layout >>> button'},new AbortController().signal);
+      const compared = await probe.probe(itemUrl,'compare_fields',{url:itemUrl,itemSelector:'podium-layout >>> .description',fields:[{name:'description',selector:':scope',attribute:''}]},new AbortController().signal);
+      if (compared.samples[0][0].sources[0].value !== 'Detail 1') throw new Error('Disclosure/field comparison failed');
+      let refused = false;
+      try { await probe.probe(itemUrl,'expand_disclosure',{url:itemUrl,selector:'podium-layout >>> .description'},new AbortController().signal); } catch { refused = true; }
+      if (!refused) throw new Error('Non-disclosure click accepted');
+      await probe.close();
+      await browser.tabs.remove(probing.source.id);
       const {worker,source} = await open(origin + '/list');
+      await browserDriver(worker.tab,origin).probe(origin+'/list','wait_for_content',{url:origin+'/list',selector:'h2',text:'Machine 1',absentSelector:''},new AbortController().signal);
+      const ordinary = await browserDriver(worker.tab,origin).probe(origin+'/list','search_text',{url:origin+'/list',text:'Machine 1'},new AbortController().signal);
+      if (!ordinary.matches.length) throw new Error('Ordinary DOM text search missing');
       const result = await runScraper(spec,origin+'/list',browserDriver(worker.tab,origin),new AbortController().signal);
       if (result.status !== 'completed' || result.items.length !== 2 || result.pages.length !== 4 || result.items[1].detail.description !== 'Detail 2') throw new Error(JSON.stringify(result));
       await browser.tabs.remove(source.id);
+      const scrolling = await open(origin + '/scroll');
+      const scrollSpec = {version:1,name:'Scroll',identityField:'title',list:{itemSelector:'article',scrollToItems:2,fields:{title:{selector:':scope',value:'text'}}}};
+      const collected = await runScraper(scrollSpec,origin+'/scroll',browserDriver(scrolling.worker.tab,origin),new AbortController().signal);
+      if (collected.items.map(item => item.data.title).join(',') !== 'First,Second') throw new Error(JSON.stringify(collected));
+      await browser.tabs.remove(scrolling.source.id);
       const redirected = await open(origin + '/list');
       const blocked = await runScraper(spec,origin+'/redirect',browserDriver(redirected.worker.tab,origin),new AbortController().signal);
-      if (blocked.status !== 'failed' || blocked.items.length) throw new Error('Redirect was not blocked');
+      if (blocked.status !== 'failed' || blocked.items.length) throw new Error('Redirect was not blocked: ' + JSON.stringify(blocked));
       await browser.tabs.remove(redirected.source.id);
       const rules = await browser.declarativeNetRequest.getSessionRules();
       if (rules.some(r => r.id >= 1000)) throw new Error('Worker rules leaked');
@@ -160,7 +195,7 @@ try {
         reject(
           new Error(`Firefox scraper smoke timed out. ${output.slice(-4000)}`),
         ),
-      40_000,
+      75_000,
     );
     const observe = (chunk) => {
       output = (output + chunk.toString()).slice(-20_000);

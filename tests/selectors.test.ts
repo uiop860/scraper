@@ -135,3 +135,18 @@ test("shadow readiness cancels and closed roots stay inaccessible", async () => 
   controller.abort();
   await expect(ready).rejects.toThrow(/Cancelled/);
 });
+
+test("deep text selectors stay bounded and resolve to their original element", async () => {
+  const { elementSelector } = await import("../extension/scraper/selectors");
+  const { document } = parseHTML(
+    '<html><body><main role="main">' +
+      "<div>".repeat(25) +
+      '<span dir="auto">Listing description</span>' +
+      "</div>".repeat(25) +
+      "</main></body></html>",
+  );
+  const node = document.querySelector("span")!;
+  const selector = elementSelector(node);
+  expect(selector.length).toBeLessThan(500);
+  expect(queryElements(document, selector)).toEqual([node]);
+});
